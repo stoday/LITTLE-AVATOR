@@ -1,8 +1,6 @@
 # Little Avatar
 
-[繁體中文](#繁體中文) | [English](#english)
-
-## 繁體中文
+[繁體中文](#專案簡介) | [English](#overview)
 
 ### 專案簡介
 
@@ -103,8 +101,6 @@ uv run pytest
 ### 安全與範圍
 
 後端只監聽 `127.0.0.1`。API key、模型設定、Agent thinking/tool trace 與 stack trace 不會回傳給桌面端。附件、文件上傳、檔案瀏覽、帳號、多使用者路由及跨重啟 conversation 歷史不在本 MVP 內。
-
-## English
 
 ### Overview
 
