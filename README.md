@@ -8,7 +8,7 @@
 
 Little Avatar 是 Windows 桌面小助手 MVP。Momo 使用 PySide6，呈現透明、無框、置頂且可拖曳的桌面角色；本機 FastAPI 後端負責互動事件、Akasha Agent 對話，以及 Markdown 筆記與提醒。
 
-套件名稱為 `p2026-little-avator`；桌面啟動指令為 `p2026-little-avator`，後端啟動指令為 `little-avatar-server`。
+Python 發行套件名稱仍為 `p2026-little-avator`；桌面啟動指令為 `little-avatar`，後端啟動指令為 `little-avatar-server`。
 
 ### 目前功能
 
@@ -45,7 +45,7 @@ uv run little-avatar-server
 
 ```powershell
 # 終端機 2
-uv run p2026-little-avator
+uv run little-avatar
 ```
 
 方式二：使用單一 console 啟動器。它會檢查 `.venv`、確認 8765 沒有舊 API、等待 `/health` 成功後啟動桌面端；關閉 Momo 或按 `Ctrl+C` 會停止它啟動的程序。
@@ -110,7 +110,7 @@ uv run pytest
 
 Little Avatar is a Windows desktop companion MVP. Momo is a transparent, frameless, always-on-top, draggable PySide6 character. A local FastAPI backend handles interaction events, Akasha Agent conversations, and Markdown-backed notes and reminders.
 
-The package is `p2026-little-avator`; the desktop entry point is `p2026-little-avator`, and the backend entry point is `little-avatar-server`.
+The Python distribution remains `p2026-little-avator`; the desktop command is `little-avatar`, and the backend command is `little-avatar-server`.
 
 ### Current capabilities
 
@@ -147,7 +147,7 @@ uv run little-avatar-server
 
 ```powershell
 # Terminal 2
-uv run p2026-little-avator
+uv run little-avatar
 ```
 
 Option 2: use the Windows single-console launcher. It checks `.venv`, verifies that port 8765 has no old API, waits for `/health`, and starts the desktop client. Closing Momo or pressing `Ctrl+C` stops the processes it started.

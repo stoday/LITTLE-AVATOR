@@ -7,7 +7,7 @@ $ErrorActionPreference = "Stop"
 $ProjectRoot = $ProjectRoot.Trim().Trim('"')
 $root = (Resolve-Path -LiteralPath $ProjectRoot).Path
 $python = Join-Path $root ".venv\Scripts\python.exe"
-$frontend = Join-Path $root ".venv\Scripts\p2026-little-avator.exe"
+$frontend = Join-Path $root ".venv\Scripts\little-avatar.exe"
 
 if (-not (Test-Path -LiteralPath $python) -or -not (Test-Path -LiteralPath $frontend)) {
     throw "The project virtual environment is incomplete. Run uv sync again."

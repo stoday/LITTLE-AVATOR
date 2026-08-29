@@ -18,7 +18,7 @@ dependencies = [
 ]
 
 [project.scripts]
-p2026-little-avator = "p2026_little_avator:main"
+little-avatar = "p2026_little_avator:main"
 little-avatar-server = "p2026_little_avator.api:run"
 
 [dependency-groups]
