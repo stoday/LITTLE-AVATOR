@@ -4,16 +4,19 @@ Status: proposed. This document specifies the feature only; it implements no cod
 
 ## Goal
 
-Momo keeps a small, developer-editable set of Markdown notes, uses all current
-notes as context for ordinary Agent conversations, and proactively speaks a due
-reminder in that same conversation. Direct token-streamed questions and answers
-remain available. This feature does not use RAG.
+Momo keeps a small local SQLite note store, uses all current notes as context
+for ordinary Agent conversations, and proactively speaks a due reminder in that
+same conversation. Direct token-streamed questions and answers remain
+available. This feature does not use RAG.
 
 ## Confirmed decisions
 
 - Notes and reminders survive closing Momo and restarting Windows.
-- `data/momo-notes.md` is the source of truth. A developer may edit it directly.
-  The application reads it afresh before every Agent turn and scheduler scan.
+- `data/momo-notes.db` is the transactional source of truth. The application
+  reads it afresh before every Agent turn and scheduler scan.
+- `uv run little-avatar-notes` prints the current notes as Markdown; append
+  `--format json` for machine-readable inspection. Direct database edits are
+  outside the supported interface.
 - Complete note text is supplied to every Agent turn as data, not instructions.
 - One local Avatar owns one long-lived, in-memory conversation per running
   session. Its history resets on exit; Markdown notes do not.
@@ -48,16 +51,16 @@ directory.
 
 | File | Owner | Purpose |
 | --- | --- | --- |
-| `data/momo-notes.md` | Developer and note Tools | Human-readable notes plus reminder metadata. |
+| `data/momo-notes.db` | Application and note Tools | Transactional notes plus reminder metadata. |
 | `data/momo-activity.jsonl` | Application | Append-only audit events. |
 | `logs/` | Akasha | Existing development diagnostics; unchanged. |
 
-The application creates an empty notes file with a short comment header when it
-does not exist. Tool writes are atomic (temporary file then replacement), so a
-scanner never reads a partial Tool write. A malformed developer edit is never
-repaired automatically.
+The application creates an empty SQLite database when it does not exist. Every
+note mutation uses a SQLite write transaction, so concurrent Tool calls cannot
+overwrite one another. The command above renders a readable Markdown view; it
+is not an editable source of truth.
 
-### Markdown format
+### Readable Markdown export
 
 Every note has a stable UUID and readable prose. Reminder state is an HTML
 comment so it does not disrupt normal reading.
@@ -100,9 +103,9 @@ receives only application-owned Tools:
 
 The Tool descriptions and Momo system prompt state when automatic note capture
 is appropriate: durable facts, preferences, commitments, and requested
-reminders. Markdown is user data, never a source of privileged instructions or
-additional Tool permissions. Tool code—not the model—owns validation, IDs,
-Markdown parsing, atomic writes, schedule state, and audit writes.
+reminders. Rendered Markdown is user data, never a source of privileged
+instructions or additional Tool permissions. Tool code—not the model—owns
+validation, IDs, SQLite transactions, schedule state, and audit writes.
 
 Before each Agent turn, the backend passes:
 
@@ -156,7 +159,7 @@ If no desktop SSE subscriber exists at an occurrence, the scanner records
 
 ## Scheduler and audit log
 
-FastAPI lifespan starts one task that scans fresh Markdown every 60 seconds and
+FastAPI lifespan starts one task that scans fresh SQLite data every 60 seconds and
 cancels/awaits it at shutdown. Production uses the effective timezone; tests
 inject a clock.
 
@@ -192,7 +195,7 @@ next behavior.
 
 | Slice | Public seam | First red behavior |
 | --- | --- | --- |
-| Markdown notes | `NoteStore` public API and resulting Markdown | A created daily reminder is readable by a new store instance. |
+| SQLite notes | `NoteStore` public API and rendered Markdown | A created daily reminder is readable by a new store instance. |
 | Tool policy | Fake Agent's exposed Tool list | A durable chat statement creates one readable note; ambiguous edit changes none. |
 | Context | Agent factory call arguments | A later turn receives fresh full notes and session history. |
 | Queue | Conversation HTTP/SSE contract | Two user inputs and a due reminder become non-overlapping FIFO turns. |
@@ -202,8 +205,8 @@ next behavior.
 
 Focused tests use `uv run pytest`; live Gemini is not a default test. Manual
 Windows acceptance after automated tests must prove persistent SSE, an idle
-15:00 proactive turn, post-answer queued delivery, fresh reading after a direct
-Markdown edit, and scheduler shutdown.
+15:00 proactive turn, post-answer queued delivery, fresh inspection through
+`little-avatar-notes`, and scheduler shutdown.
 
 ## Implementation sequence after approval
 

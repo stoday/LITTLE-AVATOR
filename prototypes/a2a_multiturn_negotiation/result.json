@@ -1,0 +1,61 @@
+{
+  "status": "agreed_and_written",
+  "agreement": {
+    "start": "14:30",
+    "end": "15:30",
+    "choice": "意麵"
+  },
+  "turns": [
+    {
+      "round": 1,
+      "party": "A",
+      "response": "您好，我今天在 13:30-14:30 有空。我偏好火鍋、鹹粥或意麵，如果您也接受意麵，我很樂意選擇意麵。您覺得這個時間和餐點可以嗎？\n未共識 [[STATE:continue]]",
+      "state": "continue",
+      "agreement": null
+    },
+    {
+      "round": 1,
+      "party": "B",
+      "response": "您好，感謝您的提議。\n\n關於時間，我今天 13:30-14:30 有一個專注時間，所以這個時段我無法配合。不過，我 14:30-15:30 是有空的。\n\n關於餐點，意麵我很樂意接受。\n\n請問您覺得 14:30-15:30 吃意麵如何呢？\n未共識 [[STATE:continue]]",
+      "state": "continue",
+      "agreement": null
+    },
+    {
+      "round": 2,
+      "party": "A",
+      "response": "您好，感謝您的提議。\n\n我今天 14:30-15:30 這個時段是沒有安排的，意麵我也很樂意。\n\n所以，我同意 14:30-15:30 吃意麵。\n[[STATE:agree|14:30-15:30|意麵]]",
+      "state": "agree",
+      "agreement": "Agreement(start='14:30', end='15:30', choice='意麵')"
+    },
+    {
+      "round": 2,
+      "party": "B",
+      "response": "太好了，我今天 14:30-15:30 這個時段是沒有安排的，意麵我也很樂意。\n\n所以，我同意 14:30-15:30 吃意麵。\n[[STATE:agree|14:30-15:30|意麵]]",
+      "state": "agree",
+      "agreement": "Agreement(start='14:30', end='15:30', choice='意麵')"
+    }
+  ],
+  "commits": [
+    {
+      "party": "A",
+      "response": "好的，行程已寫入。"
+    },
+    {
+      "party": "B",
+      "response": "好的，行程已寫入。"
+    }
+  ],
+  "schedules": {
+    "a": "# A 今日行程（原型資料）\n09:00-10:00 每日站立會議\n12:00-13:00 午餐\n16:00-17:00 工作檢討\n14:30-15:30 吃意麵\n",
+    "b": "# B 今日行程（原型資料）\n10:00-11:00 例行同步\n13:00-14:00 專注時間\n16:00-17:00 工作檢討\n14:30-15:30 吃意麵\n"
+  },
+  "discussion_log": "C:\\Users\\today\\Projects\\P2026_LITTLE_AVATOR\\prototypes\\a2a_multiturn_negotiation\\discussion.md",
+  "validated_scope": "Private food preferences and private schedules, response relay, outer consensus gate, then agent-owned schedule writes.",
+  "not_validated": [
+    "A2A",
+    "HTTP",
+    "mDNS",
+    "mTLS",
+    "real calendar provider"
+  ]
+}

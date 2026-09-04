@@ -24,7 +24,9 @@ Sources: [README capability overview](https://github.com/iii-org/akasha/blob/764
 [`src/p2026_little_avator/api.py`](../src/p2026_little_avator/api.py) already uses the intended model-only Agent shape:
 
 - Each in-process `Conversation` owns one `akasha.agents(...)` instance.
-- It explicitly passes `tools=[]`, no `skills`, `stream=True`, and `thinking=True`.
+- It passes `tools=[]` and the validated local `skills/*/` directories, with
+  `stream=True` and `thinking=True`. Akasha exposes their metadata first and
+  loads a Skill's instructions/resources only after `load_skill`.
 - `run_agent_message()` runs the synchronous iterator off the FastAPI event loop and relays **only** upstream `answer` events to the conversation SSE endpoint. `thinking`, `tool`, verbose console output, and saved diagnostic logs stay server-side.
 - The public SSE contract adds application-owned terminal events (`completed` and sanitized `error`); those are Momo events, not Akasha stream events.
 
@@ -32,7 +34,7 @@ This matches the upstream stream contract and preserves the MVP privacy boundary
 
 ## Implications for the next feature
 
-1. Start with an application-owned, typed Tool for a narrow Momo capability such as reminders or todos. Keep storage, validation, identifiers, and permission checks outside Akasha; pass only the allowed callable into `tools=[...]`. Upstream explicitly warns against unrestricted shell, filesystem, database, or network Tools. [Tool tutorial](https://github.com/iii-org/akasha/blob/764b8b413155e1b5b26d66b255aec69fa86ca464/user-guide/en/tutorials/agents.md#L54-L95)
+1. Momo's version-controlled local Skills own their storage, validation, and identifiers behind a small public runtime contract. The Agent receives no application Tool; it loads a Skill only when needed. Treat every executable Skill as trusted code and keep unrestricted third-party Skills out of this local directory.
 2. Keep the existing answer-only chat SSE contract. If a Tool runs, surface a deliberately designed Momo status event only when the product needs it; do not forward raw Tool arguments/results or thinking text.
 3. Do not add a Skill merely to implement CRUD. Use one only when the feature needs an auditable instruction-and-resource workflow. Skill directories can include executable scripts, so they need the same review and allowlisting discipline. [Skill tutorial](https://github.com/iii-org/akasha/blob/764b8b413155e1b5b26d66b255aec69fa86ca464/user-guide/en/tutorials/skill.md#L1-L102)
 4. Treat RAG as a later, separately scoped feature: choose document roots explicitly, present retrieval/source behavior in the UX, and define index deletion/retention. It requires a separately configured embedding model in addition to the chat model.

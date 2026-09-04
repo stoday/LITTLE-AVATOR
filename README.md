@@ -57,7 +57,7 @@ uv run little-avatar
 在根目錄建立 `.env`（不要提交）：
 
 ```dotenv
-MODEL=gemini:gemini-2.5-flash
+MODEL=gemini:gemini-3.7-flash
 GEMINI_API_KEY=your-provider-key
 ```
 
@@ -157,7 +157,7 @@ Option 2: use the Windows single-console launcher. It checks `.venv`, verifies t
 Create `.env` in the project root (do not commit it):
 
 ```dotenv
-MODEL=gemini:gemini-2.5-flash
+MODEL=gemini:gemini-3.7-flash
 GEMINI_API_KEY=your-provider-key
 ```
 

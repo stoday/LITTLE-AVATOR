@@ -1,0 +1,12 @@
+{
+  "prototype": "eip_identity_api_probe",
+  "classification": "pending",
+  "authenticated_state_observed": null,
+  "identity_field_observed": null,
+  "organization_context_observed": null,
+  "read_only_interface_observed": null,
+  "avator_authentication_contract_observed": null,
+  "notes": [
+    "Use capability statements only; do not store names, IDs, URLs with query values, cookies, tokens, or raw responses."
+  ]
+}

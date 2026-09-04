@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Throwaway：A2A TOFU 裝置信任</title>
+  <style>
+    :root { color-scheme: dark; font-family: system-ui, sans-serif; }
+    body { max-width: 860px; margin: 0 auto; padding: 32px 20px; background: #111827; color: #e5e7eb; }
+    button { margin: 6px 6px 6px 0; padding: 9px 12px; border: 0; border-radius: 8px; background: #2563eb; color: white; cursor: pointer; }
+    button.secondary { background: #374151; }
+    button.tab { background: #1f2937; }
+    button.tab.active { background: #7c3aed; }
+    pre { overflow: auto; padding: 16px; border-radius: 10px; background: #030712; color: #bbf7d0; }
+    .notice { border-left: 4px solid #f59e0b; padding-left: 12px; color: #fde68a; }
+  </style>
+</head>
+<body>
+  <h1>Throwaway：A2A TOFU 裝置信任</h1>
+  <p>驗證問題：不做 QR 配對時，首次信任與後續裝置連續性是否容易理解？所有狀態只在記憶體中。</p>
+  <p class="notice">這不是 EIP 身分驗證，也不是企業 PKI；它只信任曾見過且持有相同私鑰的裝置。</p>
+
+  <h2>自由操作</h2>
+  <button id="first-sight">首次看見小明的 AVATOR</button>
+  <button id="reconnect">以相同金鑰重新連線</button>
+  <button id="changed-key">模擬小明換了一把金鑰</button>
+  <button id="revoke" class="secondary">解除對小明的信任</button>
+  <button id="reset" class="secondary">重設</button>
+
+  <h2>導覽情境</h2>
+  <div role="tablist" aria-label="TOFU 情境">
+    <button class="tab active" data-guide="first">首次信任</button>
+    <button class="tab" data-guide="changed">金鑰變更</button>
+    <button class="tab" data-guide="replace">解除後換機</button>
+  </div>
+  <p id="guide"></p>
+  <button id="run-guide">執行目前情境</button>
+
+  <h2>目前狀態</h2>
+  <pre id="state"></pre>
+
+  <script id="device-trust-model">
+    function createState() {
+      return { trustRecords: {}, audit: [], lastDecision: "idle" };
+    }
+
+    function apply(state, event) {
+      const next = JSON.parse(JSON.stringify(state));
+      const record = next.trustRecords[event.agentId];
+      if (event.type === "revoke" && record) {
+        delete next.trustRecords[event.agentId];
+        next.lastDecision = "revoked";
+        next.audit.push(`解除對 ${event.agentId} 的信任`);
+      } else if (event.type === "proof" && !record) {
+        next.trustRecords[event.agentId] = { fingerprint: event.fingerprint, capability: "recommend" };
+        next.lastDecision = "trusted_first_use";
+        next.audit.push(`首次信任 ${event.agentId}`);
+      } else if (event.type === "proof" && record.fingerprint === event.fingerprint) {
+        next.lastDecision = "trusted_existing";
+        next.audit.push(`接受已信任裝置 ${event.agentId}`);
+      } else if (event.type === "proof") {
+        next.lastDecision = "rejected_key_changed";
+        next.audit.push(`拒絕 ${event.agentId}：已知 agent 的 fingerprint 改變`);
+      }
+      return { decision: next.lastDecision, state: next };
+    }
+  </script>
+  <script>
+    let state = createState();
+    const output = document.querySelector("#state");
+    const guide = document.querySelector("#guide");
+    const guides = {
+      first: {
+        text: "沒有 record 的小明首次出現。系統自動記住 key-a，但只授予 recommend。",
+        events: [{ type: "proof", agentId: "agent-xiaoming", fingerprint: "key-a" }],
+      },
+      changed: {
+        text: "已記住 key-a 後，對端宣稱同一個 agent ID 卻拿出 key-b。系統拒絕且保留 key-a。",
+        events: [
+          { type: "proof", agentId: "agent-xiaoming", fingerprint: "key-a" },
+          { type: "proof", agentId: "agent-xiaoming", fingerprint: "key-b" },
+        ],
+      },
+      replace: {
+        text: "使用者先解除 key-a 的信任；同一 agent ID 帶著 key-b 再出現時，才可重新作為首次信任。",
+        events: [
+          { type: "proof", agentId: "agent-xiaoming", fingerprint: "key-a" },
+          { type: "revoke", agentId: "agent-xiaoming" },
+          { type: "proof", agentId: "agent-xiaoming", fingerprint: "key-b" },
+        ],
+      },
+    };
+    let selectedGuide = "first";
+    function render() { output.textContent = JSON.stringify(state, null, 2); }
+    function dispatch(event) {
+      const result = apply(state, event);
+      state = result.state;
+      render();
+    }
+    document.querySelector("#first-sight").addEventListener("click", () => dispatch({
+      type: "proof", agentId: "agent-xiaoming", fingerprint: "key-a",
+    }));
+    document.querySelector("#reconnect").addEventListener("click", () => dispatch({
+      type: "proof", agentId: "agent-xiaoming", fingerprint: "key-a",
+    }));
+    document.querySelector("#changed-key").addEventListener("click", () => dispatch({
+      type: "proof", agentId: "agent-xiaoming", fingerprint: "key-b",
+    }));
+    document.querySelector("#revoke").addEventListener("click", () => dispatch({
+      type: "revoke", agentId: "agent-xiaoming",
+    }));
+    function renderGuide() {
+      guide.textContent = guides[selectedGuide].text;
+      document.querySelectorAll(".tab").forEach((button) => {
+        button.classList.toggle("active", button.dataset.guide === selectedGuide);
+      });
+    }
+    document.querySelectorAll(".tab").forEach((button) => button.addEventListener("click", () => {
+      selectedGuide = button.dataset.guide;
+      renderGuide();
+    }));
+    document.querySelector("#run-guide").addEventListener("click", () => {
+      state = createState();
+      guides[selectedGuide].events.forEach(dispatch);
+    });
+    document.querySelector("#reset").addEventListener("click", () => { state = createState(); render(); });
+    renderGuide();
+    render();
+  </script>
+</body>
+</html>

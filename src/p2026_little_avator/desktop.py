@@ -29,6 +29,7 @@ from .avatar_state import AnimationPlan, AvatarStateController
 from .chat import ChatPanel
 
 API_BASE_URL = os.environ.get("LITTLE_AVATAR_API_URL", "http://127.0.0.1:8765")
+DISPLAY_NAME = os.environ.get("LITTLE_AVATAR_DISPLAY_NAME", "Momo")
 
 
 class AvatarLabel(QLabel):
@@ -134,14 +135,15 @@ class AvatarWindow(QWidget):
     def __init__(self, base_url: str = API_BASE_URL) -> None:
         super().__init__(None, Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.Tool)
         self.base_url = base_url.rstrip("/")
+        self.display_name = DISPLAY_NAME
         self._muted_until = 0.0
         self._bubble_visible = False
         self._state = AvatarStateController()
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        self.setWindowTitle("Momo")
+        self.setWindowTitle(self.display_name)
         self._build_ui()
         self._play_plan(self._state.current)
-        self.chat_panel = ChatPanel(self.base_url)
+        self.chat_panel = ChatPanel(self.base_url, display_name=self.display_name)
         self.chat_panel.start_conversation()
         self.chat_panel.thinking_changed.connect(self._chat_thinking_changed)
         self.local_message.connect(self.set_message)
@@ -159,7 +161,7 @@ class AvatarWindow(QWidget):
         self.bubble.setObjectName("bubble")
         bubble_layout = QVBoxLayout(self.bubble)
         bubble_layout.setContentsMargins(14, 12, 14, 10)
-        self.title = QLabel("Momo")
+        self.title = QLabel(self.display_name)
         self.title.setObjectName("bubbleTitle")
         self.message = QLabel("點我一下，有事找我嗎？")
         self.message.setWordWrap(True)
@@ -300,6 +302,15 @@ class AvatarWindow(QWidget):
                     self._play_plan(plan)
         elif event_type == "avatar_state":
             self._play_plan(self._state.play(str(data.get("state", "idle"))))
+        elif event_type == "admin_notification":
+            self.set_message(
+                str(data.get("title", self.display_name)),
+                str(data.get("text", "You have a local admin notification.")),
+            )
+            context_id = data.get("context_id")
+            if isinstance(context_id, str) and context_id:
+                self.chat_panel.load_peer_transcript(context_id)
+            self._play_plan(self._state.play("happy"))
 
     def _play_plan(self, plan: AnimationPlan) -> None:
         """Play an animation plan, falling back to a still portrait when needed."""

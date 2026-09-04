@@ -1,6 +1,8 @@
 param(
     [Parameter(Mandatory = $true)]
-    [string]$ProjectRoot
+    [string]$ProjectRoot,
+    [ValidateRange(1, 65535)]
+    [int]$Port = 8765
 )
 
 $ErrorActionPreference = "Stop"
@@ -14,9 +16,9 @@ if (-not (Test-Path -LiteralPath $python) -or -not (Test-Path -LiteralPath $fron
 }
 
 try {
-    $existing = Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:8765/health" -TimeoutSec 1
+    $existing = Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:$Port/health" -TimeoutSec 1
     if ($existing.StatusCode -eq 200) {
-        throw "An API is already running on port 8765. Stop the old API before using the single-console launcher."
+        throw "An API is already running on port $Port. Stop the old API before using the single-console launcher."
     }
 } catch [System.Net.WebException] {
     # No local API is listening. The supervisor can safely create one.
@@ -76,7 +78,7 @@ function Show-NewApiOutput {
 try {
     $backendProcess = Start-Process `
         -FilePath $python `
-        -ArgumentList @("-u", "-m", "uvicorn", "p2026_little_avator.api:app", "--host", "127.0.0.1", "--port", "8765") `
+        -ArgumentList @("-u", "-m", "uvicorn", "p2026_little_avator.api:app", "--host", "127.0.0.1", "--port", "$Port") `
         -WorkingDirectory $root `
         -WindowStyle Hidden `
         -RedirectStandardOutput $stdoutLog `
@@ -87,7 +89,7 @@ try {
     do {
         Show-NewApiOutput
         try {
-            $health = Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:8765/health" -TimeoutSec 1
+            $health = Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:$Port/health" -TimeoutSec 1
             if ($health.StatusCode -eq 200) {
                 break
             }
@@ -105,6 +107,7 @@ try {
         throw "The API did not become healthy within 10 seconds."
     }
 
+    $env:LITTLE_AVATAR_API_URL = "http://127.0.0.1:$Port"
     $frontendProcess = Start-Process -FilePath $frontend -WorkingDirectory $root -WindowStyle Hidden -PassThru
     Write-Host "Momo is running. Close Momo or press Ctrl+C here to stop both processes."
     Write-Host "API and Akasha verbose output will appear below."
