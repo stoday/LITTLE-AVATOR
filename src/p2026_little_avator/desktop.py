@@ -14,12 +14,14 @@ from PySide6.QtCore import QObject, QPoint, QSize, Qt, Signal
 from PySide6.QtGui import QContextMenuEvent, QMouseEvent, QMovie, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
+    QDialog,
     QFrame,
     QGraphicsOpacityEffect,
     QHBoxLayout,
     QLabel,
     QMenu,
     QPushButton,
+    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
@@ -129,6 +131,90 @@ class SseListener(QObject):
                 retry_seconds = min(retry_seconds * 2, 20)
 
 
+class NegotiationResultDialog(QDialog):
+    """Show one local admin conclusion alongside the exchanged A2A messages."""
+
+    transcript_loaded = Signal(str, object)
+    transcript_failed = Signal(str, str)
+
+    def __init__(self, base_url: str, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._base_url = base_url.rstrip("/")
+        self._context_id = ""
+        self.setModal(False)
+        self.setWindowTitle("協商結果")
+        self.setMinimumSize(480, 380)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(10)
+        title = QLabel("協商結論")
+        title.setObjectName("negotiationResultTitle")
+        self.summary = QLabel()
+        self.summary.setObjectName("negotiationResultSummary")
+        self.summary.setWordWrap(True)
+        transcript_title = QLabel("agent-x-communicator 對話紀錄")
+        transcript_title.setObjectName("negotiationTranscriptTitle")
+        self.transcript = QTextEdit()
+        self.transcript.setObjectName("negotiationTranscript")
+        self.transcript.setReadOnly(True)
+        close = QPushButton("關閉")
+        close.clicked.connect(self.close)
+        layout.addWidget(title)
+        layout.addWidget(self.summary)
+        layout.addWidget(transcript_title)
+        layout.addWidget(self.transcript)
+        layout.addWidget(close)
+        self.setStyleSheet(
+            "#negotiationResultTitle { color: #6d4bb8; font-size: 17px; font-weight: 700; }"
+            "#negotiationResultSummary { background: #f5eaff; border-radius: 8px; padding: 10px; }"
+            "#negotiationTranscriptTitle { color: #553b8d; font-weight: 600; }"
+            "QTextEdit#negotiationTranscript { border: 1px solid #dfcdf7; border-radius: 8px; padding: 7px; }"
+            "QPushButton { background: #f5eaff; border: 0; border-radius: 8px; padding: 7px 10px; color: #553b8d; }"
+        )
+        self.transcript_loaded.connect(self._show_transcript)
+        self.transcript_failed.connect(self._show_transcript_error)
+
+    def show_result(self, summary: str, context_id: str) -> None:
+        """Present a terminal result without blocking the desktop event loop."""
+        self._context_id = context_id
+        self.summary.setText(summary)
+        self.transcript.setPlainText("正在載入 communicator 對話紀錄…")
+        self.show()
+        self.raise_()
+        self.activateWindow()
+        threading.Thread(
+            target=self._load_transcript,
+            args=(context_id,),
+            name=f"a2a-result-{context_id[:8]}",
+            daemon=True,
+        ).start()
+
+    def _load_transcript(self, context_id: str) -> None:
+        try:
+            response = requests.get(
+                f"{self._base_url}/api/collaborations/{context_id}/transcript", timeout=10
+            )
+            response.raise_for_status()
+            self.transcript_loaded.emit(context_id, response.json())
+        except (ValueError, requests.RequestException) as exc:
+            self.transcript_failed.emit(context_id, str(exc))
+
+    def _show_transcript(self, context_id: str, transcript: object) -> None:
+        if context_id != self._context_id:
+            return
+        messages = [
+            f"{item.get('speaker', 'Communicator')}: {item.get('text', '')}"
+            for item in transcript
+            if isinstance(item, dict) and item.get("text")
+        ] if isinstance(transcript, list) else []
+        self.transcript.setPlainText("\n\n".join(messages) or "此次協商沒有可顯示的交換訊息。")
+
+    def _show_transcript_error(self, context_id: str, detail: str) -> None:
+        if context_id == self._context_id:
+            self.transcript.setPlainText(f"無法載入 communicator 對話紀錄：{detail}")
+
+
 class AvatarWindow(QWidget):
     local_message = Signal(str, str)
 
@@ -145,6 +231,7 @@ class AvatarWindow(QWidget):
         self._play_plan(self._state.current)
         self.chat_panel = ChatPanel(self.base_url, display_name=self.display_name)
         self.chat_panel.start_conversation()
+        self.negotiation_result_dialog = NegotiationResultDialog(self.base_url, self)
         self.chat_panel.thinking_changed.connect(self._chat_thinking_changed)
         self.local_message.connect(self.set_message)
         self._listener = SseListener(self.base_url)
@@ -217,6 +304,7 @@ class AvatarWindow(QWidget):
     def closeEvent(self, event: Any) -> None:
         self._listener.stop()
         self.chat_panel.close()
+        self.negotiation_result_dialog.close()
         super().closeEvent(event)
 
     def _drag_by(self, delta: QPoint) -> None:
@@ -303,14 +391,12 @@ class AvatarWindow(QWidget):
         elif event_type == "avatar_state":
             self._play_plan(self._state.play(str(data.get("state", "idle"))))
         elif event_type == "admin_notification":
-            self.set_message(
-                str(data.get("title", self.display_name)),
-                str(data.get("text", "You have a local admin notification.")),
-            )
             context_id = data.get("context_id")
             if isinstance(context_id, str) and context_id:
-                self.chat_panel.load_peer_transcript(context_id)
-            self._play_plan(self._state.play("happy"))
+                self.negotiation_result_dialog.show_result(
+                    str(data.get("text", "協商已有更新。")), context_id
+                )
+                self._play_plan(self._state.play("happy"))
 
     def _play_plan(self, plan: AnimationPlan) -> None:
         """Play an animation plan, falling back to a still portrait when needed."""

@@ -12,7 +12,7 @@ from PySide6.QtWidgets import QApplication, QWidget
 
 import p2026_little_avator.desktop as desktop
 from p2026_little_avator.chat import ChatPanel, ImeTextEdit
-from p2026_little_avator.desktop import AvatarWindow
+from p2026_little_avator.desktop import AvatarWindow, NegotiationResultDialog
 
 
 def application() -> QApplication:
@@ -131,29 +131,17 @@ def test_chat_panel_shows_a_moving_thinking_indicator_until_the_first_answer() -
     panel.close()
 
 
-def test_collaboration_progress_and_peer_transcript_stay_outside_ordinary_chat() -> None:
+def test_collaboration_completion_keeps_raw_transcript_out_of_ordinary_chat() -> None:
     application()
     panel = ChatPanel("http://127.0.0.1:8765")
     panel.show()
 
-    panel.show_collaboration_progress("Contacting agent-b…")
-    panel.show_peer_transcript([("agent-a", "What time works?"), ("agent-b", "Tuesday afternoon.")])
+    panel._a2a_transcript_ready("context-1", "A private summary")
 
     assert not panel.collaboration_progress.isHidden()
-    assert panel.collaboration_progress.text() == "Contacting agent-b…"
-    assert panel.peer_transcript.isVisible()
-    assert "Tuesday afternoon." in panel.peer_transcript.toPlainText()
-    assert "Tuesday afternoon." not in panel.transcript.toPlainText()
-    assert panel.peer_transcript_close.isVisible()
-    panel.toggle_peer_transcript()
-    assert not panel.peer_transcript.isVisible()
-    panel.toggle_peer_transcript()
-    assert panel.peer_transcript.isVisible()
-    panel.close_peer_transcript()
-    assert panel.peer_transcript.isHidden()
-    assert panel.a2a_controls.isHidden()
-    assert panel.peer_transcript_toggle.isHidden()
-    assert panel.peer_transcript_close.isHidden()
+    assert panel.collaboration_progress.text() == "協商已完成，請查看協商結果視窗。"
+    assert "A private summary" not in panel.transcript.toPlainText()
+    assert not hasattr(panel, "peer_transcript")
     panel.close()
 
 
@@ -202,10 +190,55 @@ def test_normal_chat_does_not_expose_communicator_transcript_after_completion() 
 
     panel._collaboration_completed({"peer_agent_id": "agent-b", "reply": "internal peer reply"})
 
-    assert panel.peer_transcript_toggle.isHidden()
     assert "internal peer reply" not in panel.transcript.toPlainText()
-    assert "Review the local admin summary." in panel.transcript.toPlainText()
+    assert panel.transcript.toPlainText() == ""
+    assert panel.collaboration_progress.text() == "協商已完成，請查看協商結果視窗。"
     panel.close()
+
+
+def test_negotiation_result_dialog_shows_conclusion_and_only_a_close_button() -> None:
+    application()
+    dialog = NegotiationResultDialog("http://127.0.0.1:8765")
+    dialog._load_transcript = lambda _: None
+
+    dialog.show_result("雙方暫定週三晚上七點。", "context-1")
+    dialog._show_transcript(
+        "context-1",
+        [
+            {"speaker": "小王的 communicator", "text": "請問週三晚上可以嗎？"},
+            {"speaker": "小美的 communicator", "text": "可以，週三晚上七點。"},
+        ],
+    )
+
+    assert dialog.summary.text() == "雙方暫定週三晚上七點。"
+    assert "小王的 communicator" in dialog.transcript.toPlainText()
+    assert "小美的 communicator" in dialog.transcript.toPlainText()
+    assert [button.text() for button in dialog.findChildren(desktop.QPushButton)] == ["關閉"]
+    dialog.close()
+
+
+def test_admin_notification_opens_a_dedicated_result_window_without_updating_the_bubble() -> None:
+    class ResultDialogStub:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, str]] = []
+
+        def show_result(self, summary: str, context_id: str) -> None:
+            self.calls.append((summary, context_id))
+
+    result_dialog = ResultDialogStub()
+    window = type("WindowStub", (), {})()
+    window.negotiation_result_dialog = result_dialog
+    window._state = type("StateStub", (), {"play": lambda _, state: state})()
+    window._play_plan = lambda plan: setattr(window, "played_plan", plan)
+    window.set_message = lambda *_: (_ for _ in ()).throw(AssertionError("bubble must not be updated"))
+
+    AvatarWindow.handle_event(
+        window,
+        {"type": "admin_notification", "data": {"text": "協商已完成。", "context_id": "context-1"}},
+    )
+
+    assert result_dialog.calls == [("協商已完成。", "context-1")]
+    assert window.played_plan == "happy"
 
 
 def test_tentative_proposal_accepts_a_natural_language_local_confirmation(monkeypatch) -> None:

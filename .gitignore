@@ -14,6 +14,7 @@ wheels/
 # Agent files
 .codex
 .scratch
+.codex-tmp
 
 # Local Akasha diagnostics
 logs/

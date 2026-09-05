@@ -120,7 +120,6 @@ class CollaborationClient(QObject):
     completed = Signal(dict)
     failed = Signal(str)
     confirmation_completed = Signal(dict)
-    transcript_loaded = Signal(list)
 
     def __init__(self, base_url: str) -> None:
         super().__init__()
@@ -149,19 +148,6 @@ class CollaborationClient(QObject):
 
     def confirm_task(self, task_id: str, confirmed: bool) -> None:
         threading.Thread(target=self._confirm_task, args=(task_id, confirmed), daemon=True).start()
-
-    def load_transcript(self, context_id: str) -> None:
-        threading.Thread(target=self._load_transcript, args=(context_id,), daemon=True).start()
-
-    def _load_transcript(self, context_id: str) -> None:
-        try:
-            response = requests.get(
-                f"{self.base_url}/api/collaborations/{context_id}/transcript", timeout=10
-            )
-            response.raise_for_status()
-            self.transcript_loaded.emit(response.json())
-        except (KeyError, ValueError, requests.RequestException) as exc:
-            self.failed.emit(str(exc))
 
     def _confirm_task(self, task_id: str, confirmed: bool) -> None:
         try:
@@ -323,7 +309,6 @@ class ChatPanel(QFrame):
         self._collaboration_client.completed.connect(self._collaboration_completed)
         self._collaboration_client.failed.connect(self._collaboration_failed)
         self._collaboration_client.confirmation_completed.connect(self._confirmation_completed)
-        self._collaboration_client.transcript_loaded.connect(self._raw_transcript_loaded)
         self._pending_confirmation_task_id: str | None = None
 
     def start_conversation(self) -> None:
@@ -343,24 +328,6 @@ class ChatPanel(QFrame):
         self.collaboration_progress = QLabel()
         self.collaboration_progress.setObjectName("collaborationProgress")
         self.collaboration_progress.hide()
-        self.peer_transcript = QTextEdit()
-        self.peer_transcript.setObjectName("peerTranscript")
-        self.peer_transcript.setReadOnly(True)
-        self.peer_transcript.setMaximumHeight(220)
-        self.peer_transcript.hide()
-        self.peer_transcript_toggle = QPushButton("A2A 原始討論")
-        self.peer_transcript_toggle.clicked.connect(self.toggle_peer_transcript)
-        self.peer_transcript_toggle.hide()
-        self.peer_transcript_close = QPushButton("關閉 A2A 討論")
-        self.peer_transcript_close.clicked.connect(self.close_peer_transcript)
-        self.peer_transcript_close.hide()
-        self.a2a_controls = QWidget()
-        a2a_controls = QHBoxLayout(self.a2a_controls)
-        a2a_controls.setContentsMargins(0, 0, 0, 0)
-        a2a_controls.addWidget(self.peer_transcript_toggle)
-        a2a_controls.addWidget(self.peer_transcript_close)
-        a2a_controls.addStretch()
-        self.a2a_controls.hide()
         self.thinking_indicator = QLabel()
         self.thinking_indicator.setObjectName("thinkingIndicator")
         self.thinking_indicator.hide()
@@ -388,8 +355,6 @@ class ChatPanel(QFrame):
         layout.addWidget(self.transcript)
         layout.addWidget(self.thinking_indicator)
         layout.addWidget(self.collaboration_progress)
-        layout.addWidget(self.a2a_controls)
-        layout.addWidget(self.peer_transcript)
         layout.addLayout(controls)
         self.setStyleSheet(
             "QFrame { background: rgba(255, 255, 255, 245); border: 2px solid #c9b6ff; border-radius: 16px; }"
@@ -405,34 +370,10 @@ class ChatPanel(QFrame):
         self.collaboration_progress.setText(text)
         self.collaboration_progress.show()
 
-    def show_peer_transcript(self, messages: list[tuple[str, str]]) -> None:
-        """Expose only actual A2A messages in a distinct read-only panel."""
-        self.peer_transcript.setPlainText("\n\n".join(f"{speaker}: {text}" for speaker, text in messages))
-        self.a2a_controls.show()
-        self.peer_transcript_toggle.show()
-        self.peer_transcript_close.show()
-        self.peer_transcript.show()
-
-    def load_peer_transcript(self, context_id: str) -> None:
-        """Load a locally retained A2A transcript after an admin notification."""
-        self._collaboration_client.load_transcript(context_id)
-
-    def toggle_peer_transcript(self) -> None:
-        self.peer_transcript.setVisible(not self.peer_transcript.isVisible())
-
-    def close_peer_transcript(self) -> None:
-        """Close the local A2A panel without deleting its retained transcript."""
-        self.peer_transcript.clear()
-        self.peer_transcript.hide()
-        self.a2a_controls.hide()
-        self.peer_transcript_toggle.hide()
-        self.peer_transcript_close.hide()
-
     def _a2a_transcript_ready(self, context_id: str, summary: str) -> None:
-        """Show the outbound A2A exchange outside the ordinary admin reply."""
-        self.show_collaboration_progress(summary)
+        """Keep ordinary chat concise; the desktop opens the dedicated result window."""
         if context_id:
-            self.load_peer_transcript(context_id)
+            self.show_collaboration_progress("協商已完成，請查看協商結果視窗。")
 
     def show_near(self, anchor: QWidget) -> None:
         self.adjustSize()
@@ -508,27 +449,13 @@ class ChatPanel(QFrame):
         self._collaboration_client.start(contact_name, content)
 
     def _collaboration_completed(self, result: dict) -> None:
-        summary = str(result.get("summary", "Discussion complete. Review the local admin summary."))
-        self.show_collaboration_progress("Discussion complete.")
-        self.transcript.append(f"Momo: {summary}")
-        transcript = result.get("transcript", [])
-        if isinstance(transcript, list):
-            self._raw_transcript_loaded(transcript)
+        self.show_collaboration_progress("協商已完成，請查看協商結果視窗。")
         task_id = result.get("task_id")
         if isinstance(task_id, str) and task_id:
             self._pending_confirmation_task_id = task_id
 
     def _collaboration_failed(self, detail: str) -> None:
         self.show_collaboration_progress(f"Discussion failed: {detail}")
-
-    def _raw_transcript_loaded(self, transcript: list) -> None:
-        messages = [
-            (str(item.get("speaker", "Communicator")), str(item.get("text", "")))
-            for item in transcript
-            if isinstance(item, dict) and item.get("text")
-        ]
-        if messages:
-            self.show_peer_transcript(messages)
 
     def confirm_local_proposal(self) -> None:
         if self._pending_confirmation_task_id is None:

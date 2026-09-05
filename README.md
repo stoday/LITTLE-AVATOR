@@ -52,6 +52,29 @@ uv run little-avatar
 .\startup.bat
 ```
 
+在 Bash（例如 Linux、macOS、WSL 或 Git Bash）可使用相同的單一 Avatar 啟動器：
+
+```bash
+./startup.sh
+```
+
+方式三：在同一台電腦啟動兩個可彼此進行 A2A 討論的 Momo。這個啟動器會為兩個
+Avatar 使用不同的 port、資料目錄與 A2A 資料庫，並開啟兩個桌面視窗：
+
+```powershell
+.\scripts\start-dual-avatar.ps1 -PortA 18765 -PortB 18766 -NameA "小王" -NameB "小美"
+```
+
+關閉兩個 Momo 視窗或在 PowerShell 按 `Ctrl+C` 可停止它們。這是同一台電腦上的
+跨 process 測試；實體 LAN、mDNS、TLS 與裝置信任尚未包含在此啟動方式中。操作細節請見
+[雙 Avatar 本機測試說明](docs/DUAL_AVATAR_LOCAL_TEST.md)。
+
+在 Bash 使用雙 Avatar 啟動器時，指令與可選參數如下：
+
+```bash
+./start-dual-avator.sh --port-a 18765 --port-b 18766 --name-a "小王" --name-b "小美"
+```
+
 ### 設定
 
 在根目錄建立 `.env`（不要提交）：
@@ -150,6 +173,33 @@ Option 2: use the Windows single-console launcher. It checks `.venv`, verifies t
 
 ```powershell
 .\startup.bat
+```
+
+For Bash environments (Linux, macOS, WSL, or Git Bash), use the equivalent
+single-Avatar launcher:
+
+```bash
+./startup.sh
+```
+
+Option 3: launch two Momos on the same computer for a local A2A discussion. The
+launcher assigns separate ports, data directories, and A2A databases, then opens
+two desktop windows:
+
+```powershell
+.\scripts\start-dual-avatar.ps1 -PortA 18765 -PortB 18766 -NameA "Alice" -NameB "Xiaomei"
+```
+
+Close both Momo windows or press `Ctrl+C` in PowerShell to stop them. This is a
+same-computer, cross-process test; physical-LAN, mDNS, TLS, and device-trust
+validation are not included. See the [dual-Avatar local-test guide](docs/DUAL_AVATAR_LOCAL_TEST.md)
+for details.
+
+For Bash, use the dual-Avatar launcher (the filename intentionally follows this
+project's `avator` spelling):
+
+```bash
+./start-dual-avator.sh --port-a 18765 --port-b 18766 --name-a "Alice" --name-b "Xiaomei"
 ```
 
 ### Configuration
