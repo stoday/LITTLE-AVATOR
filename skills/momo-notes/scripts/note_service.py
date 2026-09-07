@@ -80,8 +80,8 @@ class NoteStore:
     def read_document(self) -> str:
         notes = self.list_notes()
         if not notes:
-            return "# Momo notes\n"
-        return "# Momo notes\n\n" + "\n\n".join(self._render_note(note) for note in notes) + "\n"
+            return "# Momo 筆記\n"
+        return "# Momo 筆記\n\n" + "\n\n".join(self._render_note(note) for note in notes) + "\n"
 
     def update_note(self, note_id: str, content: str, reminder: dict[str, Any] | None | object = _UNSET) -> Note:
         with self._write_connection() as connection:

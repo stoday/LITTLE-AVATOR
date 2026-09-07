@@ -1,6 +1,5 @@
-# Reminder contract
+# 提醒資料契約
 
-- Daily: `{"kind":"daily","time":"HH:MM"}`.
-- One-time: `{"kind":"once","due_at":"YYYY-MM-DDTHH:MM:SS+08:00"}`.
-- Daily times use Momo's local timezone. One-time reminders must include an
-  explicit offset.
+- 每日：`{"kind":"daily","time":"HH:MM"}`。
+- 單次：`{"kind":"once","due_at":"YYYY-MM-DDTHH:MM:SS+08:00"}`。
+- 每日時間使用 Momo 的本機時區。單次提醒必須帶有明確的時區位移。

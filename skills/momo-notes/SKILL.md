@@ -1,20 +1,20 @@
 ---
 name: momo-notes
-description: Manage Momo's durable local notes and reminders when the user asks to save, find, update, schedule, or delete a note.
+description: 當使用者要求儲存、查找、更新、排程或刪除筆記時，管理 Momo 的本機持久筆記與提醒。
 ---
 
-Load this Skill before handling a note or reminder. Use `scripts/note_cli.py`
-through `python_execute`; it operates only on Momo's configured local data.
+處理筆記或提醒前，先載入此 Skill。透過 `python_execute` 執行
+`scripts/note_cli.py`；它只會操作 Momo 已設定的本機資料。
 
-For a private scheduling discussion, run `read-schedule` before proposing a
-time. It reads only this avatar's local `schedule.md`; disclose only the
-specific availability needed for the discussion. Never use `read_skill_resource` to read
-`schedule.md`: it is local avatar data, not a bundled Skill resource. Use
-`python_execute` with `scripts/note_cli.py` and `args=[read-schedule]` instead.
+進行私密的行程協商時，提出時間前先執行 `read-schedule`。它只會讀取此
+Avatar 的本機 `schedule.md`；只揭露本次協商所需的特定可用時段。不得用
+`read_skill_resource` 讀取 `schedule.md`：它是本機 Avatar 資料，不是內附的
+Skill 資源。改以 `python_execute` 執行 `scripts/note_cli.py`，並傳入
+`args=[read-schedule]`。
 
-- Use `list` or `search` before updating or deleting an ambiguous note.
-- Reminders are only daily `HH:MM` or one-time timezone-aware ISO datetimes.
-- For deletion, run `request-delete` first, explain the note to the user, then
-  wait for a later explicit user confirmation. Run `confirm-delete` only with
-  the later turn ID from trusted runtime context.
-- Read `resources/reminder-contract.md` when constructing a reminder payload.
+- 更新或刪除指涉不明的筆記前，先執行 `list` 或 `search`。
+- 提醒僅支援每日 `HH:MM`，或帶時區的單次 ISO 日期時間。
+- 刪除時先執行 `request-delete`，向使用者說明筆記後，等待後續回合的明確
+  確認。只有取得受信任 runtime context 中的後續 turn ID，才能執行
+  `confirm-delete`。
+- 建立提醒 payload 時，讀取 `resources/reminder-contract.md`。

@@ -72,7 +72,7 @@ Avatar 使用不同的 port、資料目錄與 A2A 資料庫，並開啟兩個桌
 在 Bash 使用雙 Avatar 啟動器時，指令與可選參數如下：
 
 ```bash
-./start-dual-avator.sh --port-a 18765 --port-b 18766 --name-a "小王" --name-b "小美"
+./scripts/start-dual-avator.sh --port-a 18765 --port-b 18766 --name-a "小王" --name-b "小美"
 ```
 
 ### 設定
@@ -199,7 +199,7 @@ For Bash, use the dual-Avatar launcher (the filename intentionally follows this
 project's `avator` spelling):
 
 ```bash
-./start-dual-avator.sh --port-a 18765 --port-b 18766 --name-a "Alice" --name-b "Xiaomei"
+./scripts/start-dual-avator.sh --port-a 18765 --port-b 18766 --name-a "Alice" --name-b "Xiaomei"
 ```
 
 ### Configuration

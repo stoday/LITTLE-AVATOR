@@ -17,7 +17,7 @@ def test_running_little_avator_publishes_a_generic_a2a_agent_card() -> None:
         }
     ]
     assert [(skill["id"], skill["name"]) for skill in card["skills"]] == [
-        ("natural-language-discussion", "Natural-language discussion")
+        ("natural-language-discussion", "自然語言協商")
     ]
     assert "calendar" not in str(card["skills"]).lower()
     assert card["securitySchemes"] == {

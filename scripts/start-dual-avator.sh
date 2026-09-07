@@ -2,7 +2,7 @@
 # Start two isolated local Little Avatar instances for a loopback A2A discussion.
 set -Eeuo pipefail
 
-root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
 port_a="${PORT_A:-8765}"
 port_b="${PORT_B:-8766}"
 name_a="${NAME_A:-Alice}"
@@ -12,7 +12,7 @@ desktop_pids=()
 
 usage() {
     cat <<'EOF'
-Usage: ./start-dual-avator.sh [options]
+Usage: ./scripts/start-dual-avator.sh [options]
 
 Options:
   --port-a PORT   First Avatar API port (default: 8765)

@@ -145,17 +145,66 @@ def test_collaboration_completion_keeps_raw_transcript_out_of_ordinary_chat() ->
     panel.close()
 
 
-def test_collaboration_requires_a_configured_default_peer(monkeypatch) -> None:
+def test_terminal_report_only_finishes_the_matching_background_delegation() -> None:
+    application()
+    panel = ChatPanel("http://127.0.0.1:8765")
+    panel._set_busy(True)
+    panel._delegation_started("context-current")
+
+    panel.append_admin_report("另一筆協商完成。", "context-other")
+    assert not panel.input.isEnabled()
+    assert panel._thinking_timer.isActive()
+
+    panel.append_admin_report("這一筆協商完成。", "context-current")
+    assert panel.input.isEnabled()
+    assert not panel._thinking_timer.isActive()
+    assert panel._active_delegation_context_id is None
+    panel.close()
+
+
+def test_terminal_report_clears_a_stale_indicator_after_the_initial_delegation_reply() -> None:
+    """A dropped delegation-started event must not leave an already-answered turn busy."""
+    application()
+    panel = ChatPanel("http://127.0.0.1:8765")
+    panel._set_busy(True)
+    panel._append_answer("我已開始協商，完成後會回覆你。")
+    panel._start_thinking_indicator()
+
+    panel.append_admin_report("協商已完成，請確認暫定結果。", "context-finished")
+
+    assert panel.input.isEnabled()
+    assert not panel.thinking_indicator.isVisible()
+    assert not panel._thinking_timer.isActive()
+    panel.close()
+
+
+def test_new_user_turn_cannot_be_finished_by_an_older_background_delegation() -> None:
+    application()
+    panel = ChatPanel("http://127.0.0.1:8765")
+    panel._delegation_started("context-old")
+    panel._set_busy(True)
+
+    panel._turn_started("user")
+    panel.append_admin_report("舊協商完成。", "context-old")
+
+    assert panel._active_delegation_context_id is None
+    assert not panel.input.isEnabled()
+    assert panel._thinking_timer.isActive()
+    panel.close()
+
+
+def test_legacy_collaboration_entry_sends_intent_to_momo_without_a_default_peer(monkeypatch) -> None:
     application()
     monkeypatch.delenv("LITTLE_AVATAR_ADMIN_DEFAULT_CONTACT", raising=False)
     panel = ChatPanel("http://127.0.0.1:8765")
+    sent: list[str] = []
+    monkeypatch.setattr(panel._client, "send", sent.append)
     panel.input.setPlainText("Discuss this")
 
     panel.start_collaboration()
 
-    assert not panel.collaboration_progress.isHidden()
-    assert "DEFAULT_CONTACT" in panel.collaboration_progress.text()
-    assert "Discuss this" not in panel.transcript.toPlainText()
+    assert sent == ["Discuss this"]
+    assert "Discuss this" in panel.transcript.toPlainText()
     panel.close()
 
 
@@ -217,7 +266,32 @@ def test_negotiation_result_dialog_shows_conclusion_and_only_a_close_button() ->
     dialog.close()
 
 
-def test_admin_notification_opens_a_dedicated_result_window_without_updating_the_bubble() -> None:
+def test_negotiation_result_dialog_uses_secretary_names_from_transcript_envelope() -> None:
+    application()
+    dialog = NegotiationResultDialog("http://127.0.0.1:8765")
+    dialog._context_id = "context-identity"
+
+    dialog._show_transcript(
+        "context-identity",
+        {
+            "local_communicator_name": "小王的秘書",
+            "peer_communicator_name": "小美的秘書",
+            "entries": [
+                {"role": "local", "speaker": "小王的秘書", "text": "您好。"},
+                {"role": "peer", "speaker": "小美的秘書", "text": "您好。"},
+            ],
+        },
+    )
+
+    transcript_title = dialog.findChild(desktop.QLabel, "negotiationTranscriptTitle")
+    assert transcript_title.text() == "小王的秘書 與 小美的秘書 的對話紀錄"
+    assert "小王的秘書: 您好。" in dialog.transcript.toPlainText()
+    assert "小美的秘書: 您好。" in dialog.transcript.toPlainText()
+    assert "agent-x-communicator" not in dialog.transcript.toPlainText()
+    dialog.close()
+
+
+def test_admin_notification_opens_a_result_window_and_adds_the_local_report_to_chat() -> None:
     class ResultDialogStub:
         def __init__(self) -> None:
             self.calls: list[tuple[str, str]] = []
@@ -226,8 +300,10 @@ def test_admin_notification_opens_a_dedicated_result_window_without_updating_the
             self.calls.append((summary, context_id))
 
     result_dialog = ResultDialogStub()
+    reports: list[str] = []
     window = type("WindowStub", (), {})()
     window.negotiation_result_dialog = result_dialog
+    window.chat_panel = type("ChatPanelStub", (), {"append_admin_report": lambda _, text, context_id: reports.append((text, context_id))})()
     window._state = type("StateStub", (), {"play": lambda _, state: state})()
     window._play_plan = lambda plan: setattr(window, "played_plan", plan)
     window.set_message = lambda *_: (_ for _ in ()).throw(AssertionError("bubble must not be updated"))
@@ -238,6 +314,7 @@ def test_admin_notification_opens_a_dedicated_result_window_without_updating_the
     )
 
     assert result_dialog.calls == [("協商已完成。", "context-1")]
+    assert reports == [("協商已完成。", "context-1")]
     assert window.played_plan == "happy"
 
 
@@ -251,13 +328,13 @@ def test_tentative_proposal_accepts_a_natural_language_local_confirmation(monkey
         }
     )
 
-    confirmations: list[tuple[str, bool]] = []
-    monkeypatch.setattr(panel._collaboration_client, "confirm_task", lambda task, confirmed: confirmations.append((task, confirmed)))
+    sent: list[str] = []
+    monkeypatch.setattr(panel._client, "send", sent.append)
     panel.input.setPlainText("我同意")
     panel.send_message()
 
     assert panel.collaboration_button.isHidden()
-    assert confirmations == [("local-task", True)]
+    assert sent
     assert "local-task" not in panel.transcript.toPlainText()
     panel.close()
 

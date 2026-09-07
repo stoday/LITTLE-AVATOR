@@ -1,8 +1,8 @@
-# Evening schedule for avatar B
+# Avatar B 的晚間行程
 
-Only `available` entries may be disclosed by `momo-notes` during a dinner
-discussion. `busy` and `unavailable` stay private.
+在用餐協商中，`momo-notes` 只可揭露標為「可用」的項目；「忙碌」與
+「不可用」必須保持私密。
 
-- Wednesday 18:00 | busy
-- Wednesday 19:00 | available
-- Friday 19:00 | available
+- 星期三 18:00 | 忙碌
+- 星期三 19:00 | 可用
+- 星期五 19:00 | 可用

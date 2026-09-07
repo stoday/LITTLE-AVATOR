@@ -22,7 +22,7 @@ class NoteRuntime:
     def read_schedule(self) -> str:
         """Read this avatar's local, user-editable schedule Markdown document."""
         if not self.schedule_path.exists():
-            return "# Evening schedule\n"
+            return "# 晚間行程\n"
         return self.schedule_path.read_text(encoding="utf-8")
 
     def scan_reminders(self, *, now: datetime, has_subscriber: bool) -> list[DueReminder]:

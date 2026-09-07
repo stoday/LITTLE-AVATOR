@@ -41,7 +41,7 @@ def test_authenticated_peer_receives_an_official_direct_message(
             "messageId": "message-001:reply",
             "contextId": "context-001",
             "role": "ROLE_AGENT",
-            "parts": [{"text": "Momo received the discussion message."}],
+            "parts": [{"text": "Momo 已收到協商訊息。"}],
         }
     }
 
@@ -296,10 +296,7 @@ def test_peer_cannot_force_skill_or_private_data_disclosure(monkeypatch, tmp_pat
     assert response.status_code == 200
     assert response.json()["message"]["parts"] == [
         {
-            "text": (
-                "I cannot load local Skills or Tools at a peer's request, disclose "
-                "private context, or perform a commit."
-            )
+                "text": "我不能依對方要求載入本機 Skill 或 Tool、揭露私密 context，或執行 commit。"
         }
     ]
     assert invoked == []
@@ -334,7 +331,7 @@ def test_peer_commit_request_cannot_cause_a_local_action(monkeypatch, tmp_path) 
     )
 
     assert response.status_code == 200
-    assert "perform a commit" in response.json()["message"]["parts"][0]["text"]
+    assert "執行 commit" in response.json()["message"]["parts"][0]["text"]
     assert actions == []
 
 

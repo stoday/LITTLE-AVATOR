@@ -20,7 +20,7 @@ def _note(note) -> dict[str, object]:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Manage Momo notes in the configured local SQLite database.")
+    parser = argparse.ArgumentParser(description="管理已設定本機 SQLite 資料庫中的 Momo 筆記。")
     parser.add_argument("--database", type=Path, default=Path(os.getenv("LITTLE_AVATAR_DATA_DIR", "data")) / "momo-notes.db")
     parser.add_argument("--data-directory", type=Path, default=Path(os.getenv("LITTLE_AVATAR_DATA_DIR", "data")))
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -51,7 +51,7 @@ def main() -> None:
         sys.stdout.write(
             schedule_path.read_text(encoding="utf-8")
             if schedule_path.exists()
-            else "# Evening schedule\n"
+            else "# 晚間行程\n"
         )
         return
 

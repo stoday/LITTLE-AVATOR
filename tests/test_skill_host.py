@@ -13,9 +13,9 @@ def test_momo_notes_is_the_one_explicitly_configured_skill() -> None:
     assert skill_directory.name == "momo-notes"
     assert (skill_directory / "SKILL.md").is_file()
     instructions = (skill_directory / "SKILL.md").read_text(encoding="utf-8")
-    assert "Never use `read_skill_resource` to read" in instructions
-    assert "`schedule.md`: it is local avatar data" in instructions
-    assert "`python_execute` with `scripts/note_cli.py` and `args=[read-schedule]`" in instructions
+    assert "不得用\n`read_skill_resource` 讀取 `schedule.md`" in instructions
+    assert "它是本機 Avatar 資料" in instructions
+    assert "`python_execute` 執行 `scripts/note_cli.py`" in instructions
 
 
 def test_explicit_momo_notes_runtime_uses_given_avatar_data_directory(tmp_path: Path) -> None:

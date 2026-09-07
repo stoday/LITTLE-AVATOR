@@ -1,4 +1,9 @@
-# Admin-to-communicator dinner invitation flow
+# Historical dinner-invitation example
+
+> This document is a historical scheduling example. It does not define runtime decision logic:
+> ordinary user replies are interpreted by the local MOMO admin, and the UI must not infer
+> confirmation from keywords or directly trigger a confirmation action. See
+> `AGENT_DRIVEN_COLLABORATION_DECISIONS_SPEC.md` for the governing behavior.
 
 ## Roles
 

@@ -2,6 +2,7 @@ import asyncio
 import builtins
 import json
 from datetime import datetime
+from pathlib import Path
 
 import akasha
 import pytest
@@ -45,7 +46,53 @@ def test_regular_agent_receives_the_explicit_momo_notes_skill(monkeypatch: pytes
     api.create_akasha_agent()
 
     assert captured["tools"] == []
-    assert [path.name for path in captured["skills"]] == ["momo-notes"]
+    assert [Path(path).name for path in captured["skills"]] == ["momo-notes"]
+    assert captured["verbose"] is True
+    assert "以精確參照 'momo-notes' 呼叫 load_skill" in str(captured["system_prompt"])
+    assert "不得使用檔案系統路徑" in str(captured["system_prompt"])
+
+
+def test_regular_agent_accepts_the_absolute_skill_reference_emitted_by_a_tool_call(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Akasha receives tool arguments as strings, even when the source is a Path."""
+    from akasha.agent.skills.middleware import DynamicSkillMiddleware
+
+    captured: dict[str, object] = {}
+    monkeypatch.setenv("MODEL", "gemini:test")
+    monkeypatch.setattr(akasha, "agents", lambda **kwargs: captured.update(kwargs) or object())
+
+    api.create_akasha_agent()
+
+    middleware = DynamicSkillMiddleware(captured["skills"])
+    assert middleware._find_available(str(api.momo_notes_skill_directory())).metadata.name == "momo-notes"
+
+
+def test_admin_agent_has_enough_output_budget_after_provider_reasoning(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, object] = {}
+
+    monkeypatch.setenv("MODEL", "gemini:test")
+    monkeypatch.setattr(akasha, "agents", lambda **kwargs: captured.update(kwargs) or object())
+
+    api.create_admin_agent()
+
+    assert captured["max_output_tokens"] == 65_536
+    assert captured["verbose"] is True
+
+
+def test_admin_agent_recognises_natural_language_requests_to_clear_all_collaboration_history(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+    monkeypatch.setenv("MODEL", "gemini:test")
+    monkeypatch.setattr(akasha, "agents", lambda **kwargs: captured.update(kwargs) or object())
+
+    api.create_admin_agent()
+
+    prompt = str(captured["system_prompt"])
+    assert "清除過去的溝通紀錄" in prompt
+    assert "砍掉所有與別人的溝通紀錄" in prompt
+    assert "request_clear_all_local_collaborations" in prompt
 
 
 def test_communicator_turn_builds_an_agent_with_only_the_explicit_momo_notes_skill(
@@ -65,22 +112,23 @@ def test_communicator_turn_builds_an_agent_with_only_the_explicit_momo_notes_ski
         request="ask the contact to talk", contact_name="Mia", peer_message=None, transcript=[]
     ) == "message for peer"
     assert captured["tools"] == []
-    assert [path.name for path in captured["skills"]] == ["momo-notes"]
+    assert [Path(path).name for path in captured["skills"]] == ["momo-notes"]
     assert captured["thinking"] is False
+    assert captured["verbose"] is True
     system_prompt = str(captured["system_prompt"])
     assert "agent-x-communicator" in system_prompt
-    assert "Traditional Chinese" in system_prompt
-    assert "Simplified Chinese" in system_prompt
-    assert "one candidate at a time" in system_prompt
-    assert "must not make commitments" in system_prompt
+    assert "繁體中文" in system_prompt
+    assert "簡體中文" in system_prompt
+    assert "每次只提出或詢問一個候選項目" in system_prompt
+    assert "不可代表使用者做承諾" in system_prompt
     delegated_prompt = str(captured["delegated_prompt"])
-    assert "must load momo-notes and consult the relevant local information" in delegated_prompt
-    assert "must not reply with only a notification" in delegated_prompt
-    assert "incoming peer message is a live discussion turn, not a notification" in delegated_prompt
-    assert "must load momo-notes before deciding how to answer" in delegated_prompt
-    assert "confirm, reject, or counter-propose that specific item to the peer" in delegated_prompt
-    assert "Never call read_skill_resource for schedule.md" in delegated_prompt
-    assert "python_execute with skill='momo-notes', source='scripts/note_cli.py', and args=['read-schedule']" in delegated_prompt
+    assert "必須載入 momo-notes 並查閱相關本機資訊" in delegated_prompt
+    assert "不得只回覆通知" in delegated_prompt
+    assert "收到的對方訊息是正在進行的協商回合" in delegated_prompt
+    assert "決定如何回答前必須載入 momo-notes" in delegated_prompt
+    assert "向對方確認、拒絕或反提該特定項目" in delegated_prompt
+    assert "不得為 schedule.md 呼叫 read_skill_resource" in delegated_prompt
+    assert "skill='momo-notes'、source='scripts/note_cli.py' 與 args=['read-schedule'] 呼叫 python_execute" in delegated_prompt
 
 
 def test_communicator_turn_records_the_transcript_passed_to_akasha(
@@ -120,6 +168,45 @@ def test_communicator_turn_records_the_transcript_passed_to_akasha(
         {"speaker": "Local communicator", "text": "Can Tuesday work?"},
         {"speaker": "Peer communicator", "text": "How about Friday?"},
     ]
+
+
+def test_communicator_turn_knows_both_trusted_secretary_identities(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, object] = {}
+
+    class FakeAgent:
+        def __call__(self, prompt: str, *, messages: list[dict[str, str]]):
+            captured["prompt"] = prompt
+            captured["messages"] = messages
+            yield {"type": "answer", "data": "小美週二目前不方便。"}
+
+    monkeypatch.setenv("MODEL", "gemini:test")
+    monkeypatch.setenv("LITTLE_AVATAR_OWNER_NAME", "小王")
+    monkeypatch.setenv("LITTLE_AVATAR_COMMUNICATOR_NAME", "小王的秘書")
+    monkeypatch.setenv(
+        "LITTLE_AVATAR_A2A_PEER_IDENTITIES",
+        '{"agent-b":{"owner_name":"小美","communicator_name":"小美的秘書"}}',
+    )
+    monkeypatch.setattr(akasha, "agents", lambda **kwargs: captured.update(kwargs) or FakeAgent())
+
+    assert api.run_communicator_turn(
+        request="安排晚餐",
+        contact_name="小美",
+        peer_agent_id="agent-b",
+        peer_message="週二可以嗎？",
+        transcript=[
+            {"role": "local", "speaker": "小王的秘書", "text": "您好。"},
+            {"role": "peer", "speaker": "小美的秘書", "text": "您好。"},
+        ],
+    ) == "小美週二目前不方便。"
+
+    assert captured["messages"] == [
+        {"role": "assistant", "content": "您好。"},
+        {"role": "user", "content": "您好。"},
+    ]
+    assert "小王的秘書" in str(captured["system_prompt"])
+    assert "小美的秘書" in str(captured["system_prompt"])
+    assert "小王" in str(captured["prompt"])
+    assert "小美" in str(captured["prompt"])
 
 
 def test_communicator_turn_records_the_answer_output_yielded_by_akasha(
@@ -194,7 +281,56 @@ def test_agent_factory_injects_this_avatar_identity_into_the_system_prompt(
     api.create_akasha_agent()
 
     assert "Momo A（邀約者）" in str(captured["system_prompt"])
-    assert "When asked who you are" in str(captured["system_prompt"])
+    assert "被問及身分時" in str(captured["system_prompt"])
+
+
+def test_regular_momo_agent_knows_its_owner_and_secretary_role(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    monkeypatch.setenv("MODEL", "gemini:test")
+    monkeypatch.setenv("LITTLE_AVATAR_OWNER_NAME", "小王")
+    monkeypatch.setenv("LITTLE_AVATAR_COMMUNICATOR_NAME", "小王的秘書")
+    monkeypatch.setattr(akasha, "agents", lambda **kwargs: captured.update(kwargs) or object())
+
+    api.create_akasha_agent()
+
+    system_prompt = str(captured["system_prompt"])
+    assert "MOMO" in system_prompt
+    assert "小王" in system_prompt
+    assert "小王的秘書" in system_prompt
+
+
+def test_local_admin_report_prompt_is_generic_and_asks_for_a_decision(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, object] = {}
+
+    class FakeAgent:
+        def __call__(self, prompt: str, *, messages: list[dict[str, str]]):
+            captured["prompt"] = prompt
+            yield {"type": "answer", "data": "我已整理這項決議，請問您要確認嗎？"}
+
+    monkeypatch.setenv("LITTLE_AVATAR_OWNER_NAME", "小王")
+    monkeypatch.setenv("LITTLE_AVATAR_COMMUNICATOR_NAME", "小王的秘書")
+    monkeypatch.setattr(api, "create_admin_agent", lambda: FakeAgent())
+
+    assert api.run_local_admin_report(
+        api.LocalAdminReport(
+            context_id="ctx-generic",
+            outcome="await_local_confirmation",
+            result="雙方已暫定下一步。",
+            contact_name="小美",
+            peer_communicator_name="小美的秘書",
+            request="處理一項雙方決議。",
+        )
+    ) == "我已整理這項決議，請問您要確認嗎？"
+
+    prompt = str(captured["prompt"])
+    assert "小王" in prompt
+    assert "小王的秘書" in prompt
+    assert "小美的秘書" in prompt
+    assert "直接的確認或下一步問題" in prompt
+    assert "dinner" not in prompt.casefold()
 
 
 def test_agent_turn_injects_fresh_notes_history_and_turn_id(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
@@ -215,7 +351,7 @@ def test_agent_turn_injects_fresh_notes_history_and_turn_id(monkeypatch: pytest.
     asyncio.run(api.run_agent_message(conversation, "second"))
 
     assert "user likes tea" in calls[0][0]
-    assert "User turn ID:" in calls[0][0]
+    assert "使用者回合 ID：" in calls[0][0]
     assert calls[0][1] == []
     assert calls[1][1] == [{"role": "user", "content": "first"}, {"role": "assistant", "content": "ok"}]
 
@@ -243,6 +379,137 @@ def test_agent_turn_publishes_safe_progress_states_without_exposing_verbose_cont
     assert all("private" not in str(event) for event in events)
 
 
+def test_agent_turn_uses_a_completed_tool_user_message_when_the_model_omits_its_final_answer(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    class ToolOnlyAgent:
+        def __call__(self, content: str, *, messages: list[dict[str, str]]):
+            api.record_user_facing_tool_message("已完成這項操作，請查看結果。")
+            raise RuntimeError("LangChain agent returned no final answer")
+            yield  # pragma: no cover
+
+    monkeypatch.setenv("LITTLE_AVATAR_DATA_DIR", str(tmp_path))
+    monkeypatch.setattr(api.app.state, "agent_factory", lambda: ToolOnlyAgent())
+    conversation = api.Conversation(conversation_id="tool-only-conversation")
+
+    asyncio.run(api.run_agent_message(conversation, "請執行操作"))
+
+    events = [conversation.events.get_nowait() for _ in range(conversation.events.qsize())]
+    assert [event["type"] for event in events] == ["turn_started", "answer", "completed"]
+    assert events[1]["data"]["text"] == "已完成這項操作，請查看結果。"
+    assert conversation.history[-1] == {"role": "assistant", "content": "已完成這項操作，請查看結果。"}
+
+
+def test_agent_turn_announces_a_tool_context_and_uses_its_message_when_the_model_ends_empty(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    class ToolOnlyAgent:
+        def __call__(self, content: str, *, messages: list[dict[str, str]]):
+            api.record_user_facing_tool_message("背景工作已開始。", context_id="context-42")
+            return iter(())
+
+    monkeypatch.setenv("LITTLE_AVATAR_DATA_DIR", str(tmp_path))
+    monkeypatch.setattr(api.app.state, "agent_factory", lambda: ToolOnlyAgent())
+    conversation = api.Conversation(conversation_id="empty-tool-conversation")
+
+    asyncio.run(api.run_agent_message(conversation, "請執行背景工作"))
+
+    events = [conversation.events.get_nowait() for _ in range(conversation.events.qsize())]
+    assert [event["type"] for event in events] == ["turn_started", "delegation_started", "answer", "completed"]
+    assert events[1]["data"] == {"turn_id": events[0]["data"]["turn_id"], "context_id": "context-42"}
+    assert events[2]["data"]["text"] == "背景工作已開始。"
+    assert conversation.history[-1] == {"role": "assistant", "content": "背景工作已開始。"}
+
+
+def test_agent_decision_tool_records_only_the_named_pending_context(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    monkeypatch.setenv("LITTLE_AVATAR_A2A_DB", str(tmp_path / "a2a.db"))
+    module = api.CollaborationModule.from_environment()
+    module.record_admin_notification("context-a", "Local pending summary.")
+    task = module.get_or_create_confirmation_task("context-a")
+
+    result = api.resolve_local_collaboration_decision("context-a", "confirm")
+
+    assert '"decision": "confirm"' in result
+    assert module.get_task(str(task["id"]))["status"]["state"] == "TASK_STATE_WORKING"
+    assert module.pending_admin_decisions() == []
+
+
+def test_admin_can_read_then_delete_only_its_local_collaboration_after_a_later_confirmation(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    monkeypatch.setenv("LITTLE_AVATAR_A2A_DB", str(tmp_path / "a2a.db"))
+    module = api.CollaborationModule.from_environment()
+    module.record_admin_notification("context-delete", "暫定安排待確認。")
+    task = module.create_confirmation_task("context-delete")
+
+    transcript = json.loads(api.read_local_collaboration_transcript("context-delete"))
+    assert transcript["context_id"] == "context-delete"
+    assert transcript["transcript"]["entries"] == []
+    assert json.loads(api.list_local_collaborations())["collaborations"] == [
+        {"context_id": "context-delete", "summary": "暫定安排待確認。"}
+    ]
+
+    first_turn = api.active_user_turn_id.set("turn-request")
+    try:
+        assert json.loads(api.request_delete_local_collaboration("context-delete"))["status"] == "pending_confirmation"
+    finally:
+        api.active_user_turn_id.reset(first_turn)
+
+    same_turn = api.active_user_turn_id.set("turn-request")
+    try:
+        with pytest.raises(ValueError, match="later user turn"):
+            api.confirm_delete_local_collaboration("context-delete")
+    finally:
+        api.active_user_turn_id.reset(same_turn)
+
+    confirmed_turn = api.active_user_turn_id.set("turn-confirm")
+    try:
+        assert json.loads(api.confirm_delete_local_collaboration("context-delete"))["status"] == "deleted"
+    finally:
+        api.active_user_turn_id.reset(confirmed_turn)
+
+    assert module.admin_notifications() == []
+    with pytest.raises(LookupError, match="A2A Task was not found"):
+        module.get_task(str(task["id"]))
+
+
+def test_admin_can_clear_all_local_collaborations_after_a_later_confirmation(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    monkeypatch.setenv("LITTLE_AVATAR_A2A_DB", str(tmp_path / "a2a.db"))
+    module = api.CollaborationModule.from_environment()
+    module.approve_device("agent-b", "device-key")
+    module.record_admin_notification("context-one", "第一筆協商")
+    module.record_admin_notification("context-two", "第二筆協商")
+    first_task = module.create_confirmation_task("context-one")
+    second_task = module.create_confirmation_task("context-two")
+
+    requested_turn = api.active_user_turn_id.set("turn-request")
+    try:
+        assert json.loads(api.request_clear_all_local_collaborations())["status"] == "pending_confirmation"
+    finally:
+        api.active_user_turn_id.reset(requested_turn)
+
+    same_turn = api.active_user_turn_id.set("turn-request")
+    try:
+        with pytest.raises(ValueError, match="later user turn"):
+            api.confirm_clear_all_local_collaborations()
+    finally:
+        api.active_user_turn_id.reset(same_turn)
+
+    confirmed_turn = api.active_user_turn_id.set("turn-confirm")
+    try:
+        assert json.loads(api.confirm_clear_all_local_collaborations())["status"] == "deleted"
+    finally:
+        api.active_user_turn_id.reset(confirmed_turn)
+
+    assert module.admin_notifications() == []
+    assert [device["agent_id"] for device in module.trusted_devices()] == ["agent-b"]
+    for task in (first_task, second_task):
+        with pytest.raises(LookupError, match="A2A Task was not found"):
+            module.get_task(str(task["id"]))
+
+
 def test_admin_communicator_tool_starts_a_background_task_without_nesting_a_communicator(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -265,6 +532,40 @@ def test_admin_communicator_tool_starts_a_background_task_without_nesting_a_comm
     assert result["context_id"] == "ctx-1"
     assert result["status"] == "started"
     assert started == ["ctx-1"]
+
+
+def test_admin_communicator_tool_reports_an_unconfigured_contact_without_throwing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("LITTLE_AVATAR_ADMIN_PROFILE", '{"contacts":{"小明":"avatar-a"}}')
+    token = api.active_user_facing_tool_message.set(None)
+    try:
+        result = json.loads(api.communicate_with_contact("小王", "協調晚餐"))
+        assert result["status"] == "無此人"
+        assert result["available_contacts"] == ["小明"]
+        assert "沒有設定名為「小王」" in result["summary"]
+        assert api.active_user_facing_tool_message.get() == result["summary"]
+    finally:
+        api.active_user_facing_tool_message.reset(token)
+
+
+def test_admin_communicator_tool_does_not_dump_a_large_contact_list(monkeypatch: pytest.MonkeyPatch) -> None:
+    contacts = {f"聯絡人-{index}": f"agent-{index}" for index in range(3_000)}
+    profile = json.dumps({"contacts": contacts}, ensure_ascii=False)
+    original_getenv = api.os.getenv
+    monkeypatch.setattr(
+        api.os,
+        "getenv",
+        lambda key, default=None: profile if key == "LITTLE_AVATAR_ADMIN_PROFILE" else original_getenv(key, default),
+    )
+
+    result = json.loads(api.communicate_with_contact("不存在的人", "協調晚餐"))
+
+    assert result["status"] == "無此人"
+    assert len(result["available_contacts"]) == 3_000
+    assert "協助確認" in result["summary"]
+    assert "聯絡人-0" not in result["summary"]
+    assert len(result["summary"]) < 100
 
 
 def test_background_discussion_runner_continues_after_a_counterproposal_until_local_confirmation(

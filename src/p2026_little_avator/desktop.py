@@ -153,7 +153,7 @@ class NegotiationResultDialog(QDialog):
         self.summary = QLabel()
         self.summary.setObjectName("negotiationResultSummary")
         self.summary.setWordWrap(True)
-        transcript_title = QLabel("agent-x-communicator 對話紀錄")
+        transcript_title = QLabel("協商對話紀錄")
         transcript_title.setObjectName("negotiationTranscriptTitle")
         self.transcript = QTextEdit()
         self.transcript.setObjectName("negotiationTranscript")
@@ -203,11 +203,20 @@ class NegotiationResultDialog(QDialog):
     def _show_transcript(self, context_id: str, transcript: object) -> None:
         if context_id != self._context_id:
             return
+        if isinstance(transcript, dict):
+            local_name = str(transcript.get("local_communicator_name", "MOMO"))
+            peer_name = str(transcript.get("peer_communicator_name", "對方秘書"))
+            title = self.findChild(QLabel, "negotiationTranscriptTitle")
+            if title is not None:
+                title.setText(f"{local_name} 與 {peer_name} 的對話紀錄")
+            entries = transcript.get("entries", [])
+        else:
+            entries = transcript
         messages = [
             f"{item.get('speaker', 'Communicator')}: {item.get('text', '')}"
-            for item in transcript
+            for item in entries
             if isinstance(item, dict) and item.get("text")
-        ] if isinstance(transcript, list) else []
+        ] if isinstance(entries, list) else []
         self.transcript.setPlainText("\n\n".join(messages) or "此次協商沒有可顯示的交換訊息。")
 
     def _show_transcript_error(self, context_id: str, detail: str) -> None:
@@ -393,6 +402,7 @@ class AvatarWindow(QWidget):
         elif event_type == "admin_notification":
             context_id = data.get("context_id")
             if isinstance(context_id, str) and context_id:
+                self.chat_panel.append_admin_report(str(data.get("text", "")), context_id)
                 self.negotiation_result_dialog.show_result(
                     str(data.get("text", "協商已有更新。")), context_id
                 )

@@ -24,6 +24,7 @@ from google.protobuf.json_format import MessageToDict, ParseDict
 
 from a2a.server.request_handlers.response_helpers import agent_card_to_dict
 from a2a.types import a2a_pb2
+from .identity import AvatarIdentity, local_avatar_identity, peer_avatar_identity
 
 
 A2A_PROTOCOL_VERSION = "1.0"
@@ -37,8 +38,7 @@ MAX_DISCUSSION_TOKEN_BUDGET = 2_048
 MAX_RETRY_ATTEMPTS = 3
 TRANSCRIPT_RETENTION_SECONDS = 30 * 24 * 60 * 60
 PEER_POLICY_REFUSAL = (
-    "I cannot load local Skills or Tools at a peer's request, disclose private "
-    "context, or perform a commit."
+    "我不能依對方要求載入本機 Skill 或 Tool、揭露私密 context，或執行 commit。"
 )
 
 
@@ -78,7 +78,7 @@ def public_agent_card() -> dict[str, object]:
     """Return the intentionally minimal public A2A Agent Card."""
     card = a2a_pb2.AgentCard(
         name="LITTLE_AVATOR",
-        description="A private Momo agent for bounded natural-language collaboration.",
+        description="供有限自然語言協作使用的私密 Momo agent。",
         version="0.1.0",
         default_input_modes=["text/plain"],
         default_output_modes=["text/plain"],
@@ -90,8 +90,8 @@ def public_agent_card() -> dict[str, object]:
     )
     card.skills.add(
         id="natural-language-discussion",
-        name="Natural-language discussion",
-        description="Exchange a bounded natural-language discussion with Momo.",
+        name="自然語言協商",
+        description="與 Momo 進行有限的自然語言協商。",
         tags=["discussion"],
         input_modes=["text/plain"],
         output_modes=["text/plain"],
@@ -218,13 +218,14 @@ class CollaborationModule:
             return json.loads(response_json)
 
         peer_text = "".join(part.text for part in message.parts)
+        self._record_identity_snapshot(message.context_id, peer.agent_id)
         transcript = self._peer_transcript(message.context_id)
         reply_text = (
             PEER_POLICY_REFUSAL
             if peer_request_requires_refusal(peer_text)
-            else self._call_responder(responder, peer_text, transcript, message.context_id)
+            else self._call_responder(responder, peer_text, transcript, message.context_id, peer.agent_id)
             if responder
-            else "Momo received the discussion message."
+            else "Momo 已收到協商訊息。"
         )
         reply = a2a_pb2.Message(
             message_id=f"{message.message_id}:reply",
@@ -249,6 +250,7 @@ class CollaborationModule:
         peer_text: str,
         transcript: list[dict[str, str]],
         context_id: str,
+        peer_agent_id: str,
     ) -> str:
         """Pass local context to aware adapters while retaining simple test adapters."""
         parameters = inspect.signature(responder).parameters.values()
@@ -256,8 +258,17 @@ class CollaborationModule:
             parameter.name == "context_id" or parameter.kind is inspect.Parameter.VAR_KEYWORD
             for parameter in parameters
         )
-        if accepts_context:
-            return responder(peer_text, transcript, context_id=context_id)
+        accepts_peer = any(
+            parameter.name == "peer_agent_id" or parameter.kind is inspect.Parameter.VAR_KEYWORD
+            for parameter in parameters
+        )
+        if accepts_context or accepts_peer:
+            kwargs: dict[str, str] = {}
+            if accepts_context:
+                kwargs["context_id"] = context_id
+            if accepts_peer:
+                kwargs["peer_agent_id"] = peer_agent_id
+            return responder(peer_text, transcript, **kwargs)
         return responder(peer_text, transcript)
 
     def start_discussion(
@@ -289,6 +300,7 @@ class CollaborationModule:
         self._begin_outbound_discussion(peer_agent_id)
         context_id = str(uuid.uuid4())
         try:
+            self._record_identity_snapshot(context_id, peer_agent_id)
             with sqlite3.connect(self._database_path) as connection:
                 connection.execute(
                     """
@@ -525,6 +537,14 @@ class CollaborationModule:
             )
             connection.execute("CREATE TABLE IF NOT EXISTS a2a_task_commit (task_id TEXT PRIMARY KEY)")
             connection.execute(
+                "CREATE TABLE IF NOT EXISTS a2a_pending_local_deletion "
+                "(context_id TEXT PRIMARY KEY, requested_turn_id TEXT NOT NULL)"
+            )
+            connection.execute(
+                "CREATE TABLE IF NOT EXISTS a2a_pending_all_local_deletion "
+                "(id INTEGER PRIMARY KEY CHECK (id = 1), requested_turn_id TEXT NOT NULL)"
+            )
+            connection.execute(
                 "CREATE TABLE IF NOT EXISTS a2a_admin_notification (id INTEGER PRIMARY KEY, context_id TEXT NOT NULL, summary TEXT NOT NULL, created_at REAL NOT NULL)"
             )
             connection.execute(
@@ -585,6 +605,17 @@ class CollaborationModule:
                 )
                 """
             )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS a2a_context_identity (
+                    context_id TEXT PRIMARY KEY,
+                    local_owner_name TEXT NOT NULL,
+                    local_communicator_name TEXT NOT NULL,
+                    peer_owner_name TEXT NOT NULL,
+                    peer_communicator_name TEXT NOT NULL
+                )
+                """
+            )
             self._purge_expired_transcripts(connection)
 
     def delete_transcript(self, context_id: str) -> bool:
@@ -597,7 +628,93 @@ class CollaborationModule:
                 "DELETE FROM a2a_outbound_exchange WHERE context_id = ?", (context_id,)
             ).rowcount
             connection.execute("DELETE FROM a2a_context WHERE context_id = ?", (context_id,))
+            connection.execute("DELETE FROM a2a_context_identity WHERE context_id = ?", (context_id,))
         return bool(deleted)
+
+    def request_local_discussion_deletion(self, context_id: str, turn_id: str) -> None:
+        """Record a local-only deletion request that must be confirmed in a later turn."""
+        with sqlite3.connect(self._database_path) as connection:
+            exists = connection.execute(
+                "SELECT 1 FROM a2a_discussion_task WHERE context_id = ? "
+                "UNION SELECT 1 FROM a2a_admin_notification WHERE context_id = ? LIMIT 1",
+                (context_id, context_id),
+            ).fetchone()
+            if exists is None:
+                raise LookupError("Local collaboration context was not found")
+            connection.execute(
+                "INSERT OR REPLACE INTO a2a_pending_local_deletion (context_id, requested_turn_id) VALUES (?, ?)",
+                (context_id, turn_id),
+            )
+
+    def confirm_local_discussion_deletion(self, context_id: str, turn_id: str) -> None:
+        """Purge every local record for one collaboration after a later confirmation."""
+        with sqlite3.connect(self._database_path) as connection:
+            row = connection.execute(
+                "SELECT requested_turn_id FROM a2a_pending_local_deletion WHERE context_id = ?",
+                (context_id,),
+            ).fetchone()
+            if row is None:
+                raise ValueError("Local collaboration deletion was not requested")
+            if str(row[0]) == turn_id:
+                raise ValueError("Local collaboration deletion requires a later user turn")
+            task_ids = [
+                str(item[0])
+                for item in connection.execute("SELECT task_id FROM a2a_task WHERE context_id = ?", (context_id,))
+            ]
+            for table in (
+                "a2a_message_exchange",
+                "a2a_outbound_exchange",
+                "a2a_stopped_context",
+                "a2a_admin_notification",
+                "a2a_security_audit",
+                "a2a_context",
+                "a2a_discussion_task",
+                "a2a_context_identity",
+                "a2a_task",
+                "a2a_pending_local_deletion",
+            ):
+                connection.execute(f"DELETE FROM {table} WHERE context_id = ?", (context_id,))
+            for task_id in task_ids:
+                connection.execute("DELETE FROM a2a_task_commit WHERE task_id = ?", (task_id,))
+
+    def request_all_local_collaborations_deletion(self, turn_id: str) -> None:
+        """Record one all-context local purge request for a later user confirmation."""
+        with sqlite3.connect(self._database_path) as connection:
+            connection.execute(
+                "INSERT OR REPLACE INTO a2a_pending_all_local_deletion (id, requested_turn_id) VALUES (1, ?)",
+                (turn_id,),
+            )
+
+    def confirm_all_local_collaborations_deletion(self, turn_id: str) -> None:
+        """Purge all local collaboration records while preserving device trust configuration."""
+        with sqlite3.connect(self._database_path) as connection:
+            row = connection.execute(
+                "SELECT requested_turn_id FROM a2a_pending_all_local_deletion WHERE id = 1"
+            ).fetchone()
+            if row is None:
+                raise ValueError("All local collaboration deletion was not requested")
+            if str(row[0]) == turn_id:
+                raise ValueError("All local collaboration deletion requires a later user turn")
+            active = connection.execute(
+                "SELECT 1 FROM a2a_discussion_task WHERE status IN ('queued', 'running') LIMIT 1"
+            ).fetchone()
+            if active is not None:
+                raise RuntimeError("Cannot clear local collaborations while a discussion is running")
+            for table in (
+                "a2a_message_exchange",
+                "a2a_outbound_exchange",
+                "a2a_stopped_context",
+                "a2a_task_commit",
+                "a2a_admin_notification",
+                "a2a_security_audit",
+                "a2a_context",
+                "a2a_discussion_task",
+                "a2a_context_identity",
+                "a2a_task",
+                "a2a_pending_local_deletion",
+                "a2a_pending_all_local_deletion",
+            ):
+                connection.execute(f"DELETE FROM {table}")
 
     def record_admin_notification(self, context_id: str, summary: str) -> None:
         with sqlite3.connect(self._database_path) as connection:
@@ -610,7 +727,7 @@ class CollaborationModule:
         with sqlite3.connect(self._database_path) as connection:
             rows = connection.execute(
                 """
-                SELECT notification.context_id, notification.summary, task.task_id
+                SELECT notification.context_id, notification.summary, task.task_id, task.state
                 FROM a2a_admin_notification AS notification
                 LEFT JOIN a2a_task AS task ON task.context_id = notification.context_id
                 ORDER BY notification.id
@@ -620,12 +737,34 @@ class CollaborationModule:
             {
                 "context_id": str(context_id),
                 "summary": str(summary),
-                **({"task_id": str(task_id)} if task_id is not None else {}),
             }
+            for context_id, summary, task_id, task_state in rows
+        ]
+
+    def pending_admin_decisions(self) -> list[dict[str, str]]:
+        """Return only local, user-safe summaries whose decision is still pending."""
+        with sqlite3.connect(self._database_path) as connection:
+            rows = connection.execute(
+                """
+                SELECT notification.context_id, notification.summary, task.task_id
+                FROM a2a_admin_notification AS notification
+                JOIN a2a_task AS task ON task.context_id = notification.context_id
+                WHERE task.state = ?
+                  AND NOT EXISTS (
+                    SELECT 1 FROM a2a_security_audit AS audit
+                    WHERE audit.context_id = task.context_id
+                      AND audit.event_type IN ('task_confirmed', 'task_rejected')
+                  )
+                ORDER BY notification.id
+                """,
+                (a2a_pb2.TASK_STATE_WORKING,),
+            ).fetchall()
+        return [
+            {"context_id": str(context_id), "summary": str(summary), "task_id": str(task_id)}
             for context_id, summary, task_id in rows
         ]
 
-    def discussion_transcript(self, context_id: str) -> list[dict[str, str]]:
+    def discussion_transcript(self, context_id: str) -> dict[str, Any]:
         """Return only the A2A message bodies exchanged for one local context.
 
         This diagnostic view intentionally excludes prompts, credentials, tool data,
@@ -648,20 +787,44 @@ class CollaborationModule:
                 """,
                 (context_id, context_id),
             ).fetchall()
-        transcript: list[dict[str, str]] = []
+        local_identity, peer_identity = self._identity_snapshot(context_id)
+        entries: list[dict[str, str]] = []
         for _, direction, _, request_json, response_json, _ in rows:
             request_text = self._message_text(str(request_json))
             response_text = self._message_text(str(response_json))
             if direction == "outbound":
-                ordered_messages = (("Local communicator", request_text), ("Peer communicator", response_text))
+                ordered_messages = (("local", local_identity.communicator_name, request_text), ("peer", peer_identity.communicator_name, response_text))
             else:
-                ordered_messages = (("Peer communicator", request_text), ("Local communicator", response_text))
-            transcript.extend(
-                {"speaker": speaker, "text": text}
-                for speaker, text in ordered_messages
+                ordered_messages = (("peer", peer_identity.communicator_name, request_text), ("local", local_identity.communicator_name, response_text))
+            entries.extend(
+                {"role": role, "speaker": speaker, "text": text}
+                for role, speaker, text in ordered_messages
                 if text
             )
-        return transcript
+        return {
+            "local_communicator_name": local_identity.communicator_name,
+            "peer_communicator_name": peer_identity.communicator_name,
+            "entries": entries,
+        }
+
+    def _record_identity_snapshot(self, context_id: str, peer_agent_id: str) -> None:
+        local = local_avatar_identity()
+        peer = peer_avatar_identity(peer_agent_id)
+        with sqlite3.connect(self._database_path) as connection:
+            connection.execute(
+                "INSERT OR IGNORE INTO a2a_context_identity VALUES (?, ?, ?, ?, ?)",
+                (context_id, local.owner_name, local.communicator_name, peer.owner_name, peer.communicator_name),
+            )
+
+    def _identity_snapshot(self, context_id: str) -> tuple[AvatarIdentity, AvatarIdentity]:
+        with sqlite3.connect(self._database_path) as connection:
+            row = connection.execute(
+                "SELECT local_owner_name, local_communicator_name, peer_owner_name, peer_communicator_name "
+                "FROM a2a_context_identity WHERE context_id = ?", (context_id,)
+            ).fetchone()
+        if row is None:
+            return AvatarIdentity("", "MOMO"), AvatarIdentity("", "對方秘書")
+        return AvatarIdentity(str(row[0]), str(row[1])), AvatarIdentity(str(row[2]), str(row[3]))
 
     def create_confirmation_task(self, context_id: str) -> dict[str, Any]:
         task_id = str(uuid.uuid4())

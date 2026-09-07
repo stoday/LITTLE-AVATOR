@@ -113,7 +113,8 @@ def test_discussion_task_persists_one_context_across_two_outbound_a2a_turns(
     module.finish_discussion_task(context_id)
 
     assert [call["message"]["contextId"] for call in calls] == [context_id, context_id]
-    assert [item["text"] for item in module.discussion_transcript(context_id)] == [
+    transcript = module.discussion_transcript(context_id)
+    assert [item["text"] for item in transcript["entries"]] == [
         "Can Tuesday work?",
         "I recommend Tuesday afternoon.",
         "How about Wednesday instead?",
@@ -122,6 +123,37 @@ def test_discussion_task_persists_one_context_across_two_outbound_a2a_turns(
     completed = module.get_discussion_task(context_id)
     assert completed["status"] == "completed"
     assert completed["rounds"] == 2
+
+
+def test_discussion_transcript_uses_identity_snapshot_and_explicit_roles(monkeypatch, tmp_path) -> None:
+    database_path = tmp_path / "a2a.db"
+    monkeypatch.setenv("LITTLE_AVATAR_OWNER_NAME", "小王")
+    monkeypatch.setenv("LITTLE_AVATAR_COMMUNICATOR_NAME", "小王的秘書")
+    monkeypatch.setenv(
+        "LITTLE_AVATAR_A2A_PEER_IDENTITIES",
+        '{"agent-b":{"owner_name":"小美","communicator_name":"小美的秘書"}}',
+    )
+    monkeypatch.setenv(
+        "LITTLE_AVATAR_A2A_OUTBOUND_PEERS",
+        '{"agent-b":{"url":"http://peer.example/a2a","credential":"peer-secret"}}',
+    )
+    monkeypatch.setattr(
+        "requests.post", lambda *_args, **kwargs: _PeerResponse(kwargs["json"]["message"]["contextId"])
+    )
+    module = CollaborationModule(database_path, {})
+
+    context_id = module.create_discussion_task("agent-b", "小美", "約晚餐")["context_id"]
+    module.send_discussion_turn("agent-b", context_id, "小王週二方便嗎？")
+
+    transcript = module.discussion_transcript(context_id)
+
+    assert transcript["local_communicator_name"] == "小王的秘書"
+    assert transcript["peer_communicator_name"] == "小美的秘書"
+    assert transcript["entries"][0] == {
+        "role": "local",
+        "speaker": "小王的秘書",
+        "text": "小王週二方便嗎？",
+    }
 
 
 def test_discussion_stops_before_a_second_turn_when_token_budget_is_used(

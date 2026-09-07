@@ -61,6 +61,9 @@ def test_two_communicator_agents_complete_two_background_a2a_rounds(tmp_path: Pa
         (directory / "schedule.md").write_text(schedule, encoding="utf-8")
     instance_b = _start(port_b, tmp_path / "b", {
         "LITTLE_AVATAR_A2A_AGENT_ID": "agent-b",
+        "LITTLE_AVATAR_OWNER_NAME": "小美",
+        "LITTLE_AVATAR_COMMUNICATOR_NAME": "小美的秘書",
+        "LITTLE_AVATAR_A2A_PEER_IDENTITIES": '{"agent-a":{"owner_name":"小王","communicator_name":"小王的秘書"}}',
         "LITTLE_AVATAR_IDENTITY": "小美",
         "LITTLE_AVATAR_A2A_DB": str(tmp_path / "b" / "a2a.db"),
         "LITTLE_AVATAR_A2A_PEERS": '{"agent-a":"secret-a"}',
@@ -68,6 +71,9 @@ def test_two_communicator_agents_complete_two_background_a2a_rounds(tmp_path: Pa
     })
     instance_a = _start(port_a, tmp_path / "a", {
         "LITTLE_AVATAR_A2A_AGENT_ID": "agent-a",
+        "LITTLE_AVATAR_OWNER_NAME": "小王",
+        "LITTLE_AVATAR_COMMUNICATOR_NAME": "小王的秘書",
+        "LITTLE_AVATAR_A2A_PEER_IDENTITIES": '{"agent-b":{"owner_name":"小美","communicator_name":"小美的秘書"}}',
         "LITTLE_AVATAR_IDENTITY": "小王",
         "LITTLE_AVATAR_A2A_DB": str(tmp_path / "a" / "a2a.db"),
         "LITTLE_AVATAR_A2A_OUTBOUND_PEERS": '{"agent-b":{"url":"http://127.0.0.1:' + str(port_b) + '/a2a","credential":"secret-a"}}',
@@ -106,15 +112,18 @@ def test_two_communicator_agents_complete_two_background_a2a_rounds(tmp_path: Pa
         assert task["status"] == "completed", task
         assert task["rounds"] >= 2
         transcript_a = requests.get(f"http://127.0.0.1:{port_a}/api/collaborations/{context_id}/transcript", timeout=10).json()
-        assert len(transcript_a) >= 4
-        assert [entry["speaker"] for entry in transcript_a[:4]] == [
-            "Local communicator", "Peer communicator", "Local communicator", "Peer communicator"
+        entries_a = transcript_a["entries"]
+        assert len(entries_a) >= 4
+        assert transcript_a["local_communicator_name"] == "小王的秘書"
+        assert transcript_a["peer_communicator_name"] == "小美的秘書"
+        assert [entry["speaker"] for entry in entries_a[:4]] == [
+            "小王的秘書", "小美的秘書", "小王的秘書", "小美的秘書"
         ]
-        assert "Sunday" in transcript_a[0]["text"] or "週日" in transcript_a[0]["text"]
-        assert "Saturday" in transcript_a[2]["text"] or "週六" in transcript_a[2]["text"]
-        assert "Saturday" in transcript_a[3]["text"] or "週六" in transcript_a[3]["text"]
-        assert "確認" in transcript_a[3]["text"]
-        assert all("[[A2A_STATE:" not in entry["text"] for entry in transcript_a)
+        assert "Sunday" in entries_a[0]["text"] or "週日" in entries_a[0]["text"]
+        assert "Saturday" in entries_a[2]["text"] or "週六" in entries_a[2]["text"]
+        assert "Saturday" in entries_a[3]["text"] or "週六" in entries_a[3]["text"]
+        assert "確認" in entries_a[3]["text"]
+        assert all("[[A2A_STATE:" not in entry["text"] for entry in entries_a)
         notifications_a = requests.get(
             f"http://127.0.0.1:{port_a}/api/admin/notifications", timeout=10
         ).json()

@@ -27,6 +27,7 @@ class ConversationClient(QObject):
     turn_started = Signal(str)
     answer_chunk = Signal(str)
     status_changed = Signal(str)
+    delegation_started = Signal(str)
     a2a_transcript_ready = Signal(str, str)
     completed = Signal()
     failed = Signal(str)
@@ -103,6 +104,8 @@ class ConversationClient(QObject):
                         self.answer_chunk.emit(str(data.get("text", "")))
                     elif event_type == "status":
                         self.status_changed.emit(str(data.get("text", "")))
+                    elif event_type == "delegation_started":
+                        self.delegation_started.emit(str(data.get("context_id", "")))
                     elif event_type == "a2a_transcript":
                         self.a2a_transcript_ready.emit(
                             str(data.get("context_id", "")),
@@ -119,7 +122,6 @@ class ConversationClient(QObject):
 class CollaborationClient(QObject):
     completed = Signal(dict)
     failed = Signal(str)
-    confirmation_completed = Signal(dict)
 
     def __init__(self, base_url: str) -> None:
         super().__init__()
@@ -145,27 +147,6 @@ class CollaborationClient(QObject):
             self.completed.emit(result)
         except (KeyError, ValueError, requests.RequestException) as exc:
             self.failed.emit(str(exc))
-
-    def confirm_task(self, task_id: str, confirmed: bool) -> None:
-        threading.Thread(target=self._confirm_task, args=(task_id, confirmed), daemon=True).start()
-
-    def _confirm_task(self, task_id: str, confirmed: bool) -> None:
-        try:
-            response = requests.post(
-                f"{self.base_url}/api/collaboration-tasks/{task_id}/confirmation",
-                json={"confirmed": confirmed},
-                timeout=10,
-            )
-            response.raise_for_status()
-            self.confirmation_completed.emit(response.json())
-        except (KeyError, ValueError, requests.RequestException) as exc:
-            self.failed.emit(str(exc))
-
-
-def is_local_agreement(content: str) -> bool:
-    normalized = content.strip().casefold()
-    return normalized in {"\u6211\u540c\u610f", "\u540c\u610f", "\u53ef\u4ee5", "\u597d", "yes", "agree"}
-
 
 class ImeTextEdit(QTextEdit):
     """A growing multiline chat input that remains safe for Windows IMEs."""
@@ -303,13 +284,13 @@ class ChatPanel(QFrame):
         self._client.turn_started.connect(self._turn_started)
         self._client.answer_chunk.connect(self._append_answer)
         self._client.status_changed.connect(self.show_agent_status)
+        self._client.delegation_started.connect(self._delegation_started)
         self._client.a2a_transcript_ready.connect(self._a2a_transcript_ready)
         self._client.completed.connect(self._completed)
         self._client.failed.connect(self._failed)
         self._collaboration_client.completed.connect(self._collaboration_completed)
         self._collaboration_client.failed.connect(self._collaboration_failed)
-        self._collaboration_client.confirmation_completed.connect(self._confirmation_completed)
-        self._pending_confirmation_task_id: str | None = None
+        self._active_delegation_context_id: str | None = None
 
     def start_conversation(self) -> None:
         self._client.start()
@@ -419,12 +400,6 @@ class ChatPanel(QFrame):
         content = self.input.toPlainText().strip()
         if not content:
             return
-        if self._pending_confirmation_task_id and is_local_agreement(content):
-            self.input.clear()
-            self.transcript.append(f"You: {content}")
-            self.show_collaboration_progress("Local confirmation recorded; waiting for the other admin.")
-            self._collaboration_client.confirm_task(self._pending_confirmation_task_id, True)
-            return
         self._last_message = content
         self.input.clear()
         self.transcript.append(f"你：{content}")
@@ -435,40 +410,43 @@ class ChatPanel(QFrame):
         self._turn_origin = origin
         self._has_answer_text = False
         if origin == "user":
+            self._active_delegation_context_id = None
             self._set_busy(True)
 
+    def _delegation_started(self, context_id: str) -> None:
+        """Associate the in-flight ordinary turn with its background discussion."""
+        self._active_delegation_context_id = context_id or None
+
     def start_collaboration(self, content: str | None = None) -> None:
+        """Legacy entry point: delegate intent interpretation to MOMO, never a default peer."""
         content = content or self.input.toPlainText().strip()
-        contact_name = os.getenv("LITTLE_AVATAR_ADMIN_DEFAULT_CONTACT", "").strip()
-        if not content or not contact_name:
-            self.show_collaboration_progress("Configure LITTLE_AVATAR_ADMIN_DEFAULT_CONTACT to start a discussion.")
+        if not content:
             return
         self.input.clear()
-        self.transcript.append(f"You: {content}")
-        self.show_collaboration_progress("Discussing with peer…")
-        self._collaboration_client.start(contact_name, content)
+        self.transcript.append(f"你：{content}")
+        self._set_busy(True)
+        self._client.send(content)
 
     def _collaboration_completed(self, result: dict) -> None:
         self.show_collaboration_progress("協商已完成，請查看協商結果視窗。")
-        task_id = result.get("task_id")
-        if isinstance(task_id, str) and task_id:
-            self._pending_confirmation_task_id = task_id
 
     def _collaboration_failed(self, detail: str) -> None:
         self.show_collaboration_progress(f"Discussion failed: {detail}")
 
-    def confirm_local_proposal(self) -> None:
-        if self._pending_confirmation_task_id is None:
+    def append_admin_report(self, summary: str, context_id: str | None = None) -> None:
+        """Show the safe local-admin conclusion in the ordinary user conversation."""
+        message = summary.strip()
+        if not message:
             return
-        self.confirmation_button.setEnabled(False)
-        self.show_collaboration_progress("Local confirmation recorded; waiting for the other admin.")
-        self._collaboration_client.confirm_task(self._pending_confirmation_task_id, True)
-
-    def _confirmation_completed(self, task: dict) -> None:
-        if task.get("status", {}).get("state") == "TASK_STATE_WORKING":
-            self.show_collaboration_progress("Local confirmation recorded; waiting for the other admin.")
-        else:
-            self.show_collaboration_progress("Local confirmation could not be recorded.")
+        self.transcript.append(f"\n{self.display_name}：{message}")
+        self.transcript.append("")
+        self.show_collaboration_progress("協商已完成；完整的秘書對話在結果視窗中。")
+        matching_delegation = context_id and context_id == self._active_delegation_context_id
+        stale_indicator_after_answer = self._has_answer_text and self._active_delegation_context_id is None
+        if matching_delegation or stale_indicator_after_answer:
+            self._active_delegation_context_id = None
+            self._set_busy(False)
+            self.input.setFocus()
 
     def retry(self) -> None:
         if self._last_message:
