@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 
 from p2026_little_avator import api
 from p2026_little_avator.api import app, encode_sse
+from p2026_little_avator.skills import skill_directory
 
 
 def test_interaction_request_accepts_mvp_action() -> None:
@@ -45,11 +46,18 @@ def test_regular_agent_receives_the_explicit_momo_notes_skill(monkeypatch: pytes
     monkeypatch.setattr(akasha, "agents", fake_agents)
     api.create_akasha_agent()
 
-    assert captured["tools"] == []
-    assert [Path(path).name for path in captured["skills"]] == ["momo-notes"]
+    assert [tool.name for tool in captured["tools"]] == ["run_command"]
+    assert [Path(path).name for path in captured["skills"]] == ["dtri-meeting-room", "momo-notes"]
     assert captured["verbose"] is True
     assert "以精確參照 'momo-notes' 呼叫 load_skill" in str(captured["system_prompt"])
+    assert "同一個模型回合不得平行呼叫多個 load_skill" in str(captured["system_prompt"])
     assert "不得使用檔案系統路徑" in str(captured["system_prompt"])
+
+
+def test_run_command_tool_exposes_arguments_without_a_pydantic_alias() -> None:
+    tool = api.base_agent_tools(akasha)[0]
+
+    assert set(tool.args) == {"executable", "arguments", "timeout_seconds"}
 
 
 def test_regular_agent_accepts_the_absolute_skill_reference_emitted_by_a_tool_call(
@@ -65,7 +73,8 @@ def test_regular_agent_accepts_the_absolute_skill_reference_emitted_by_a_tool_ca
     api.create_akasha_agent()
 
     middleware = DynamicSkillMiddleware(captured["skills"])
-    assert middleware._find_available(str(api.momo_notes_skill_directory())).metadata.name == "momo-notes"
+    assert middleware._find_available(str(skill_directory("momo-notes"))).metadata.name == "momo-notes"
+    assert middleware._find_available("dtri-meeting-room").metadata.name == "dtri-meeting-room"
 
 
 def test_admin_agent_has_enough_output_budget_after_provider_reasoning(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -77,6 +86,7 @@ def test_admin_agent_has_enough_output_budget_after_provider_reasoning(monkeypat
     api.create_admin_agent()
 
     assert captured["max_output_tokens"] == 65_536
+    assert "run_command" in [tool.name for tool in captured["tools"]]
     assert captured["verbose"] is True
 
 
@@ -111,8 +121,8 @@ def test_communicator_turn_builds_an_agent_with_only_the_explicit_momo_notes_ski
     assert api.run_communicator_turn(
         request="ask the contact to talk", contact_name="Mia", peer_message=None, transcript=[]
     ) == "message for peer"
-    assert captured["tools"] == []
-    assert [Path(path).name for path in captured["skills"]] == ["momo-notes"]
+    assert [tool.name for tool in captured["tools"]] == ["run_command"]
+    assert [Path(path).name for path in captured["skills"]] == ["dtri-meeting-room", "momo-notes"]
     assert captured["thinking"] is False
     assert captured["verbose"] is True
     system_prompt = str(captured["system_prompt"])

@@ -8,11 +8,11 @@ import sys
 
 import pytest
 
-from p2026_little_avator.skill_host import SkillRuntimeContext, load_momo_notes_runtime
+from p2026_little_avator.skills import load_skill_runtime
 
 
 def runtime(tmp_path: Path):
-    return load_momo_notes_runtime(SkillRuntimeContext(tmp_path))
+    return load_skill_runtime("momo-notes").create_runtime(data_directory=tmp_path)
 
 
 def test_existing_sqlite_notes_schema_remains_readable(tmp_path: Path) -> None:

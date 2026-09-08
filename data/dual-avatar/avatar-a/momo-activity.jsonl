@@ -1,1 +1,3 @@
 {"timestamp":"2026-08-31T19:00:48+08:00","type":"note_created","note_id":"ec9862b6-2f29-45f3-8cce-096c4a60525e","source":"note_store"}
+{"timestamp":"2026-09-07T09:08:03+08:00","type":"note_delete_requested","note_id":"ec9862b6-2f29-45f3-8cce-096c4a60525e","source":"note_store"}
+{"timestamp":"2026-09-07T09:08:18+08:00","type":"note_deleted","note_id":"ec9862b6-2f29-45f3-8cce-096c4a60525e","source":"note_store"}

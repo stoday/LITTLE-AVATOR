@@ -17,6 +17,7 @@ dependencies = [
     "graphifyy>=0.1.0",
     "a2a-sdk>=1.1.2",
     "zeroconf>=0.151.3",
+    "dtri-meeting-room",
 ]
 
 [project.scripts]
@@ -34,3 +35,6 @@ build-backend = "uv_build"
 
 [tool.uv.build-backend]
 data = { data = "skills" }
+
+[tool.uv.sources]
+dtri-meeting-room = { git = "https://github.com/stoday/dtri-meeting-room.git" }

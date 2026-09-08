@@ -21,3 +21,6 @@ logs/
 
 # graphify
 graphify-out
+
+# Database files
+*.db

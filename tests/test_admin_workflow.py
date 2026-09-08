@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -7,13 +9,16 @@ import p2026_little_avator.api as api
 from p2026_little_avator.api import app
 
 
-def test_admin_delegation_rejects_an_unmapped_contact(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_admin_delegation_reports_an_unmapped_contact(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("LITTLE_AVATAR_ADMIN_PROFILE", '{"contacts":{}}')
 
-    with pytest.raises(LookupError):
-        from p2026_little_avator.api import communicate_with_contact
+    from p2026_little_avator.api import communicate_with_contact
 
-        communicate_with_contact("Mia", "ask her to talk")
+    result = json.loads(communicate_with_contact("Mia", "ask her to talk"))
+
+    assert result["status"] == "無此人"
+    assert result["contact_name"] == "Mia"
+    assert result["available_contacts"] == []
 
 
 def test_inbound_a2a_message_continues_without_prematurely_reporting_to_the_local_admin(

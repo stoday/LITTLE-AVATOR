@@ -26,10 +26,10 @@ from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, field_validator
 
-from .skill_host import (
-    SkillRuntimeContext,
-    load_momo_notes_runtime,
-    momo_notes_skill_directory,
+from .command_tool import run_command
+from .skills import (
+    load_skill_runtime,
+    skill_directories,
 )
 from .collaboration import CollaborationModule, public_agent_card
 from .identity import AvatarIdentity, local_avatar_identity, peer_avatar_identity
@@ -72,6 +72,17 @@ active_user_facing_tool_publisher: ContextVar[Callable[[dict[str, str]], None] |
 )
 
 
+def base_agent_tools(akasha: Any) -> list[Any]:
+    """Return Tools deliberately shared by every LITTLE_AVATOR agent."""
+    return [akasha.create_tool(
+        "Run an installed command from the LITTLE_AVATOR project root. "
+        "Pass the executable and arguments separately; do not use shell syntax. "
+        "Commands return their exit code, stdout, and stderr.",
+        run_command,
+        tool_name="run_command",
+    )]
+
+
 def record_user_facing_tool_message(message: str, *, context_id: str | None = None) -> None:
     """Let a completed user-facing Tool provide a safe fallback answer and task identity."""
     safe_message = message.strip()
@@ -89,6 +100,7 @@ MOMO_SYSTEM_PROMPT = """你是 Momo，一位親切、貼心的桌面夥伴。
 桌面控制或工具。
 應用程式會在每個回合提供受信任的 runtime 時間資訊。相對日期與提醒應依此資訊判斷；
 不可虛構日期，也不可在未實際呼叫工具時聲稱已查過時間。
+需要使用多個 Skill 時必須依資料相依順序逐一處理；同一個模型回合不得平行呼叫多個 load_skill。
 處理筆記、提醒或本機行程前，先載入 momo-notes Skill。只能以精確參照 'momo-notes' 呼叫 load_skill，不得使用檔案系統路徑。只有該 Skill 的腳本成功後，才能確認筆記或提醒已儲存。"""
 
 
@@ -664,8 +676,8 @@ def create_akasha_agent() -> Any:
 
     return akasha.agents(
         model=model,
-        tools=[],
-        skills=[str(momo_notes_skill_directory())],
+        tools=base_agent_tools(akasha),
+        skills=skill_directories(),
         system_prompt=momo_system_prompt(),
         max_input_tokens=1048576,
         max_output_tokens=65536,
@@ -687,7 +699,7 @@ def create_admin_agent() -> Any:
 
     return akasha.agents(
         model=model,
-        tools=[akasha.create_tool(
+        tools=[*base_agent_tools(akasha), akasha.create_tool(
             "請已設定聯絡人的 communicator 處理使用者要求的協商。"
             "只有在使用者要求與該聯絡人溝通時才能使用。",
             communicate_with_contact,
@@ -722,7 +734,7 @@ def create_admin_agent() -> Any:
             confirm_clear_all_local_collaborations,
             tool_name="confirm_clear_all_local_collaborations",
         )],
-        skills=[str(momo_notes_skill_directory())],
+        skills=skill_directories(),
         system_prompt=(
             f"你是 {local_avatar_identity().owner_name or '本機使用者'} 的本機 Avatar 管理員。"
             f"你的產品角色是 MOMO，本機秘書角色是 {local_avatar_identity().communicator_name}。"
@@ -944,8 +956,8 @@ def run_communicator_turn(
 
     agent = akasha.agents(
         model=model,
-        tools=[],
-        skills=[str(momo_notes_skill_directory())],
+        tools=base_agent_tools(akasha),
+        skills=skill_directories(),
         system_prompt=(
             "你是 agent-x-communicator，這個 Avatar 的私密 A2A 代表。"
             f"你公開使用的名稱是 {local_identity.communicator_name}，服務 {local_identity.owner_name or '本機使用者'}。"
@@ -1104,8 +1116,10 @@ app.state.a2a_responder = respond_to_a2a_peer
 def note_runtime(*, conversation_id: str | None = None, turn_id: str | None = None) -> Any:
     """Return the public runtime supplied by the trusted momo-notes Skill."""
     data_directory = Path(os.getenv("LITTLE_AVATAR_DATA_DIR", "data"))
-    return load_momo_notes_runtime(
-        SkillRuntimeContext(data_directory, conversation_id=conversation_id, turn_id=turn_id),
+    return load_skill_runtime("momo-notes").create_runtime(
+        data_directory=data_directory,
+        conversation_id=conversation_id,
+        turn_id=turn_id,
     )
 
 

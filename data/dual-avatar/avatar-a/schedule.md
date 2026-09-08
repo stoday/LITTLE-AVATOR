@@ -1,9 +1,9 @@
-# Evening schedule for avatar A
+# Avatar A 的晚間行程
 
-- Mondy 18:00-21:00 | working
-- Tuesday 18:00-21:00 | busy
-- Wednesday 18:00-21:00 | busy
-- Thursday 18:00-21:00 | busy
-- Friday 18:00-21:00 | busy
-- Saturday 19:00-20:00 | available
-- Sunday 18:00-21:00 | available
+- 星期一 18:00-21:00 | 工作中
+- 星期二 18:00-21:00 | 可用
+- 星期三 18:00-21:00 | 忙碌
+- 星期四 18:00-21:00 | 忙碌
+- 星期五 18:00-21:00 | 忙碌
+- 星期六 19:00-20:00 | 可用
+- 星期日 18:00-21:00 | 可用

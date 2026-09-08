@@ -32,8 +32,16 @@ class NoteRuntime:
         self.activity_log.append(event_type, **data)
 
 
-def create_runtime(context) -> NoteRuntime:
-    data = context.data_directory
+def create_runtime(
+    *,
+    data_directory: Path,
+    conversation_id: str | None = None,
+    turn_id: str | None = None,
+) -> NoteRuntime:
+    # Reserved for per-conversation auditing without making the host construct a
+    # Skill-specific context type.
+    del conversation_id, turn_id
+    data = data_directory
     activity_log = ActivityLog(data / "momo-activity.jsonl")
     return NoteRuntime(
         NoteStore(data / "momo-notes.db", activity_log=activity_log),
